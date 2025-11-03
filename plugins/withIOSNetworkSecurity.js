@@ -1,18 +1,24 @@
-const { withInfoPlist } = require('@expo/config-plugins');
+const { withInfoPlist } = require("@expo/config-plugins");
 
 const withIOSNetworkSecurity = (config) => {
   return withInfoPlist(config, (config) => {
-    const infoPlist = config.modResults;
+    const existingPlist = config.modResults;
 
-    infoPlist.NSAppTransportSecurity = {
-      NSAllowsArbitraryLoads: true,
+    const transportSecurity = existingPlist.NSAppTransportSecurity || {};
 
-      NSAllowsLocalNetworking: true,
+    transportSecurity.NSAllowsArbitraryLoads = true;
 
-      NSAllowsArbitraryLoadsInWebContent: true,
+    transportSecurity.NSAllowsLocalNetworking = true;
 
-      NSAllowsArbitraryLoadsForMedia: true,
-    };
+    transportSecurity.NSAllowsArbitraryLoadsInWebContent = true;
+    transportSecurity.NSAllowsArbitraryLoadsForMedia = true;
+
+    existingPlist.NSAppTransportSecurity = transportSecurity;
+
+    existingPlist.NSLocalNetworkUsageDescription =
+      "Termix needs to connect to servers on your local network for SSH and other services.";
+
+    existingPlist.NSBonjourServices = ["_ssh._tcp", "_sftp-ssh._tcp"];
 
     return config;
   });
