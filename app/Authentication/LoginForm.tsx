@@ -51,8 +51,7 @@ export default function LoginForm() {
               return;
             }
           }
-        } catch (error) {
-        }
+        } catch (error) {}
       }
 
       setWebViewKey(String(Date.now()));
