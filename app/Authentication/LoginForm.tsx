@@ -34,32 +34,40 @@ export default function LoginForm() {
   const [source, setSource] = useState<WebViewSource>({ uri: "" });
   const [webViewKey, setWebViewKey] = useState(() => String(Date.now()));
   const [hasNavigated, setHasNavigated] = useState(false);
-  const [shouldClearCookies, setShouldClearCookies] = useState(true);
 
   useEffect(() => {
-    const clearPersistedDataOnce = async () => {
-      if (!hasNavigated) {
+    const initializeLogin = async () => {
+      const existingToken = await AsyncStorage.getItem("jwt");
+      if (existingToken) {
         try {
-          await AsyncStorage.removeItem("jwt");
-          setWebViewKey(String(Date.now()));
+          const { getUserInfo } = await import("../main-axios");
+          const userInfo = await getUserInfo();
+
+          if (userInfo && userInfo.username) {
+            if (userInfo.data_unlocked === false) {
+            } else {
+              setAuthenticated(true);
+              setShowLoginForm(false);
+              return;
+            }
+          }
         } catch (error) {
-          console.error("[LoginForm] Error clearing persisted data:", error);
         }
+      }
+
+      setWebViewKey(String(Date.now()));
+
+      const serverUrl = getCurrentServerUrl();
+      if (serverUrl) {
+        setSource({ uri: serverUrl });
+        setUrl(serverUrl);
+      } else if (selectedServer?.ip) {
+        setSource({ uri: selectedServer.ip });
+        setUrl(selectedServer.ip);
       }
     };
 
-    clearPersistedDataOnce();
-  }, []);
-
-  useEffect(() => {
-    const serverUrl = getCurrentServerUrl();
-    if (serverUrl) {
-      setSource({ uri: serverUrl });
-      setUrl(serverUrl);
-    } else if (selectedServer?.ip) {
-      setSource({ uri: selectedServer.ip });
-      setUrl(selectedServer.ip);
-    }
+    initializeLogin();
   }, [selectedServer]);
 
   const handleBackToServerConfig = () => {
@@ -174,7 +182,7 @@ export default function LoginForm() {
             }
           });
         } catch(e) {
-          console.error('[LoginForm] Error clearing JWT on page load:', e);
+          console.error('[LoginForm] Error clearing JWT from WebView:', e);
         }
       }
 
@@ -245,12 +253,6 @@ export default function LoginForm() {
         }
 
         if (!hasNotified) return;
-
-        try {
-          localStorage.setItem('jwt', token);
-        } catch (e) {
-          console.error('[WebView] Failed to save to localStorage:', e);
-        }
 
         try {
           const message = JSON.stringify({

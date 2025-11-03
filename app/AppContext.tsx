@@ -104,14 +104,27 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
 
         if (serverConfig || legacyServer) {
           let authStatus = false;
-          try {
-            const { getUserInfo } = await import("./main-axios");
-            const meRes = await getUserInfo();
-            if (meRes.username && meRes.data_unlocked) {
-              authStatus = true;
+
+          const jwtToken = await AsyncStorage.getItem("jwt");
+
+          if (jwtToken) {
+            try {
+              const { getUserInfo } = await import("./main-axios");
+              const meRes = await getUserInfo();
+              if (meRes && meRes.username) {
+                if (meRes.data_unlocked === false) {
+                  authStatus = false;
+                } else {
+                  authStatus = true;
+                }
+              } else {
+              }
+            } catch (e) {
+              console.error("[AppContext] Auto-login failed:", e);
+              authStatus = false;
+              await AsyncStorage.removeItem("jwt");
             }
-          } catch (e) {
-            authStatus = false;
+          } else {
           }
 
           let serverInfo = null;
@@ -157,9 +170,8 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
     setAuthStateCallback(async (isAuthenticated: boolean) => {
       if (!isAuthenticated) {
         setAuthenticated(false);
-        setShowLoginForm(false);
-        setShowServerManager(true);
-        setSelectedServer(null);
+        setShowLoginForm(true);
+        setShowServerManager(false);
       }
     });
   }, []);
