@@ -429,8 +429,13 @@ async function detectAndUpdateApiInstances(): Promise<void> {
       (async () => {
         try {
           const base = getRootBase(8085).replace(/\/$/, "");
-          const res = await fetch(`${base}/status`, { method: "HEAD" });
-          return res.ok;
+          const testInstance = axios.create({
+            baseURL: base,
+            timeout: 5000,
+            headers: { "Content-Type": "application/json" },
+          });
+          await testInstance.head("/status");
+          return true;
         } catch {
           return false;
         }
@@ -438,8 +443,13 @@ async function detectAndUpdateApiInstances(): Promise<void> {
       (async () => {
         try {
           const base = getSshBase(8085).replace(/\/$/, "");
-          const res = await fetch(`${base}/status`, { method: "HEAD" });
-          return res.ok;
+          const testInstance = axios.create({
+            baseURL: base,
+            timeout: 5000,
+            headers: { "Content-Type": "application/json" },
+          });
+          await testInstance.head("/status");
+          return true;
         } catch {
           return false;
         }
@@ -447,10 +457,13 @@ async function detectAndUpdateApiInstances(): Promise<void> {
       (async () => {
         try {
           const base = getRootBase(8081).replace(/\/$/, "");
-          const res = await fetch(`${base}/users/registration-allowed`, {
-            method: "HEAD",
+          const testInstance = axios.create({
+            baseURL: base,
+            timeout: 5000,
+            headers: { "Content-Type": "application/json" },
           });
-          return res.ok;
+          await testInstance.head("/users/registration-allowed");
+          return true;
         } catch {
           return false;
         }
@@ -458,10 +471,13 @@ async function detectAndUpdateApiInstances(): Promise<void> {
       (async () => {
         try {
           const base = getSshBase(8081).replace(/\/$/, "");
-          const res = await fetch(`${base}/users/registration-allowed`, {
-            method: "HEAD",
+          const testInstance = axios.create({
+            baseURL: base,
+            timeout: 5000,
+            headers: { "Content-Type": "application/json" },
           });
-          return res.ok;
+          await testInstance.head("/users/registration-allowed");
+          return true;
         } catch {
           return false;
         }
@@ -2002,10 +2018,9 @@ export async function getFoldersWithStats(): Promise<any> {
 
     const tryFetch = async (baseUrl: string) => {
       const cleanBase = baseUrl.replace(/\/$/, "");
-      const url = `${cleanBase}/ssh/folders`;
-
-      const response = await fetch(url, {
-        method: "GET",
+      const tempInstance = axios.create({
+        baseURL: cleanBase,
+        timeout: 10000,
         headers: {
           Accept: "application/json",
           "User-Agent": "Termix-Mobile",
@@ -2013,12 +2028,14 @@ export async function getFoldersWithStats(): Promise<any> {
         },
       });
 
-      if (response.ok) {
-        return await response.json();
-      } else if (response.status === 404) {
-        return null;
-      } else {
-        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      try {
+        const response = await tempInstance.get("/ssh/folders");
+        return response.data;
+      } catch (err: any) {
+        if (err.response?.status === 404) {
+          return null;
+        }
+        throw err;
       }
     };
 
@@ -2031,9 +2048,6 @@ export async function getFoldersWithStats(): Promise<any> {
     }
     return data || [];
   } catch (error) {
-    if (error instanceof Error && !error.message.includes("404")) {
-      console.warn("Error fetching folders:", error.message);
-    }
     return [];
   }
 }

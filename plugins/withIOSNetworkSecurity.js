@@ -4,16 +4,12 @@ const withIOSNetworkSecurity = (config) => {
   return withInfoPlist(config, (config) => {
     const existingPlist = config.modResults;
 
-    const transportSecurity = existingPlist.NSAppTransportSecurity || {};
-
-    transportSecurity.NSAllowsArbitraryLoads = true;
-
-    transportSecurity.NSAllowsLocalNetworking = true;
-
-    transportSecurity.NSAllowsArbitraryLoadsInWebContent = true;
-    transportSecurity.NSAllowsArbitraryLoadsForMedia = true;
-
-    existingPlist.NSAppTransportSecurity = transportSecurity;
+    existingPlist.NSAppTransportSecurity = {
+      NSAllowsArbitraryLoads: true,
+      NSAllowsLocalNetworking: true,
+      NSAllowsArbitraryLoadsInWebContent: true,
+      NSAllowsArbitraryLoadsForMedia: true,
+    };
 
     existingPlist.NSLocalNetworkUsageDescription =
       "Termix needs to connect to servers on your local network for SSH and other services.";
