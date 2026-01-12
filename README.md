@@ -5,15 +5,6 @@
 ![GitHub Release](https://img.shields.io/github/v/release/Termix-SSH/Mobile?style=flat&label=Release)
 <a href="https://discord.gg/jVQGdvHDrf"><img alt="Discord" src="https://img.shields.io/discord/1347374268253470720"></a>
 
-#### Top Technologies
-
-[![React Native Badge](https://img.shields.io/badge/-React%20Native-61DBFB?style=flat-square&labelColor=black&logo=react&logoColor=61DBFB)](#)
-[![TypeScript Badge](https://img.shields.io/badge/-TypeScript-3178C6?style=flat-square&labelColor=black&logo=typescript&logoColor=3178C6)](#)
-[![Expo Badge](https://img.shields.io/badge/-Expo-000020?style=flat-square&labelColor=black&logo=expo&logoColor=000020)](#)
-[![NativeWind Badge](https://img.shields.io/badge/-NativeWind-38B2AC?style=flat-square&labelColor=black&logo=tailwindcss&logoColor=38B2AC)](#)
-[![Android Badge](https://img.shields.io/badge/-Android-3DDC84?style=flat-square&labelColor=black&logo=android&logoColor=3DDC84)](#)
-[![iOS Badge](https://img.shields.io/badge/-iOS-000000?style=flat-square&labelColor=black&logo=ios&logoColor=000000)](#)
-
 If you would like, you can support the project here!\
 [![GitHub Sponsor](https://img.shields.io/badge/Sponsor-LukeGus-181717?style=for-the-badge&logo=github&logoColor=white)](https://github.com/sponsors/LukeGus)
 
