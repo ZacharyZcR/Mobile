@@ -222,16 +222,39 @@ jobs:
           echo "Latest release: $RELEASE_NAME ($RELEASE_TAG)"
           echo "Release URL: $RELEASE_URL"
 
+          echo "Fetching latest release from Termix-SSH/Mobile..."
+          MOBILE_RELEASE=$(gh release list --repo Termix-SSH/Mobile --limit 1 --json tagName,name,isLatest -q '.[0]')
+
+          if [ -z "$MOBILE_RELEASE" ]; then
+            echo "ERROR: No releases found in Termix-SSH/Mobile"
+            exit 1
+          fi
+
+          MOBILE_TAG=$(echo "$MOBILE_RELEASE" | jq -r '.tagName')
+          MOBILE_NAME=$(echo "$MOBILE_RELEASE" | jq -r '.name')
+          MOBILE_URL="https://github.com/Termix-SSH/Mobile/releases/tag/$MOBILE_TAG"
+
+          echo "Latest Mobile release: $MOBILE_NAME ($MOBILE_TAG)"
+          echo "Mobile Release URL: $MOBILE_URL"
+
           if [ "${{ matrix.platform }}" = "android" ]; then
             APK_FILE="build-artifacts/termix_android.apk"
             if [ -f "$APK_FILE" ]; then
-              echo "Uploading $APK_FILE..."
+              echo "Uploading $APK_FILE to Termix-SSH/Termix..."
               gh release upload "$RELEASE_TAG" \
                 "$APK_FILE" \
                 --repo Termix-SSH/Termix \
                 --clobber
 
-              echo "✓ Android APK uploaded successfully"
+              echo "✓ Android APK uploaded to Termix-SSH/Termix"
+
+              echo "Uploading $APK_FILE to Termix-SSH/Mobile..."
+              gh release upload "$MOBILE_TAG" \
+                "$APK_FILE" \
+                --repo Termix-SSH/Mobile \
+                --clobber
+
+              echo "✓ Android APK uploaded to Termix-SSH/Mobile"
             else
               echo "ERROR: Android APK not found: $APK_FILE"
               exit 1
@@ -239,13 +262,21 @@ jobs:
           elif [ "${{ matrix.platform }}" = "ios" ]; then
             IPA_FILE="build-artifacts/termix_ios.ipa"
             if [ -f "$IPA_FILE" ]; then
-              echo "Uploading $IPA_FILE..."
+              echo "Uploading $IPA_FILE to Termix-SSH/Termix..."
               gh release upload "$RELEASE_TAG" \
                 "$IPA_FILE" \
                 --repo Termix-SSH/Termix \
                 --clobber
 
-              echo "✓ iOS IPA uploaded successfully"
+              echo "✓ iOS IPA uploaded to Termix-SSH/Termix"
+
+              echo "Uploading $IPA_FILE to Termix-SSH/Mobile..."
+              gh release upload "$MOBILE_TAG" \
+                "$IPA_FILE" \
+                --repo Termix-SSH/Mobile \
+                --clobber
+
+              echo "✓ iOS IPA uploaded to Termix-SSH/Mobile"
             else
               echo "ERROR: iOS IPA not found: $IPA_FILE"
               exit 1
@@ -253,4 +284,6 @@ jobs:
           fi
 
           echo ""
-          echo "Build uploaded to release: $RELEASE_URL"
+          echo "Build uploaded to releases:"
+          echo "  - Termix: $RELEASE_URL"
+          echo "  - Mobile: $MOBILE_URL"

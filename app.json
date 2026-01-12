@@ -2,8 +2,8 @@
   "expo": {
     "name": "Termix",
     "slug": "termix",
-    "version": "1.1.0",
-    "orientation": "portrait",
+    "version": "1.2.0",
+    "orientation": "default",
     "icon": "./assets/images/icon.png",
     "scheme": "termix-mobile",
     "githubUrl": "https://github.com/Termix-SSH/Mobile",
@@ -57,12 +57,13 @@
             "usesCleartextTraffic": true
           },
           "ios": {
-            "newArchEnabled": true
+            "newArchEnabled": true,
+            "deploymentTarget": "15.1"
           }
         }
       ],
-      "./plugins/withNetworkSecurityConfig.js",
       "./plugins/withIOSNetworkSecurity.js",
+      "./plugins/withNetworkSecurityConfig.js",
       "expo-dev-client"
     ],
     "experiments": {
