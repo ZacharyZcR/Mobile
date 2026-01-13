@@ -28,6 +28,18 @@ See [Projects](https://github.com/orgs/Termix-SSH/projects/2) for all planned fe
 
 Termix Mobile is available for both [Android](https://docs.termix.site/install/connector/android) and [iOS](https://docs.termix.site/install/connector/ios) platforms.
 
+# Sponsors
+
+<p align="left">
+  <a href="https://www.digitalocean.com/">
+    <img src="https://opensource.nyc3.cdn.digitaloceanspaces.com/attribution/assets/SVG/DO_Logo_horizontal_blue.svg" height="50" alt="DigitalOcean">
+  </a>
+  &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+  <a href="https://crowdin.com/">
+    <img src="https://support.crowdin.com/assets/logos/core-logo/svg/crowdin-core-logo-cDark.svg" height="50" alt="Crowdin">
+  </a>
+</p>
+
 # Support
 
 If you need help or want to request a feature with Termix Mobile, visit the [Issues](https://github.com/Termix-SSH/Support/issues) page, log in, and press `New Issue`.
