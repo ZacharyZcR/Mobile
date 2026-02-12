@@ -48,6 +48,7 @@ import {
   BORDER_COLORS,
   BORDERS,
 } from "@/app/constants/designTokens";
+import { addKeyCommandListener } from "@/modules/hardware-keyboard";
 
 export default function Sessions() {
   const insets = useSafeAreaInsets();
@@ -374,6 +375,19 @@ export default function Sessions() {
     isCustomKeyboardVisible,
     customKeyboardHeight,
   ]);
+
+  useEffect(() => {
+    if (Platform.OS !== "ios") return;
+    const sub = addKeyCommandListener((event) => {
+      if (event.input === "\t" && event.shift) {
+        const activeRef = activeSessionId
+          ? terminalRefs.current[activeSessionId]
+          : null;
+        activeRef?.current?.sendInput("\x1b[Z");
+      }
+    });
+    return () => sub.remove();
+  }, [activeSessionId]);
 
   useFocusEffect(
     React.useCallback(() => {
