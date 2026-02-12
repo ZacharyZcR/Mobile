@@ -9,7 +9,6 @@ import {
   KeyboardAvoidingView,
   Platform,
   TextInput,
-  InputAccessoryView,
   TouchableWithoutFeedback,
   Pressable,
   Dimensions,
@@ -53,7 +52,7 @@ import {
 export default function Sessions() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const { width, height, isLandscape } = useOrientation();
+  const { height, isLandscape } = useOrientation();
   const {
     sessions,
     activeSessionId,
@@ -95,17 +94,13 @@ export default function Sessions() {
   const isSelectingRef = useRef(false);
   const keyboardWasHiddenBeforeSelectionRef = useRef(false);
 
-  const isIPad = Platform.OS === "ios" && Math.min(width, height) >= 768;
   const maxKeyboardHeight = getMaxKeyboardHeight(height, isLandscape);
   const effectiveKeyboardHeight = isLandscape
     ? Math.min(lastKeyboardHeight, maxKeyboardHeight)
     : lastKeyboardHeight;
-  const rawKeyboardHeight = isLandscape
+  const currentKeyboardHeight = isLandscape
     ? Math.min(keyboardHeight, maxKeyboardHeight)
     : keyboardHeight;
-  const currentKeyboardHeight = isIPad
-    ? Math.max(0, rawKeyboardHeight - insets.bottom)
-    : rawKeyboardHeight;
 
   const customKeyboardHeight = Math.max(
     200,
@@ -814,7 +809,6 @@ export default function Sessions() {
             contextMenuHidden
             underlineColorAndroid="transparent"
             multiline
-            inputAccessoryViewID="terminal-noop"
             onChangeText={() => {}}
             onKeyPress={({ nativeEvent }) => {
               const key = nativeEvent.key;
@@ -911,11 +905,6 @@ export default function Sessions() {
           />
         )}
 
-      {Platform.OS === "ios" && (
-        <InputAccessoryView nativeID="terminal-noop">
-          <View style={{ height: 0 }} />
-        </InputAccessoryView>
-      )}
     </View>
   );
 }
