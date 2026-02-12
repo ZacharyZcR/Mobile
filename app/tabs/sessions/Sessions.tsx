@@ -9,6 +9,7 @@ import {
   KeyboardAvoidingView,
   Platform,
   TextInput,
+  InputAccessoryView,
   TouchableWithoutFeedback,
   Pressable,
   Dimensions,
@@ -52,7 +53,7 @@ import {
 export default function Sessions() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const { height, isLandscape } = useOrientation();
+  const { width, height, isLandscape } = useOrientation();
   const {
     sessions,
     activeSessionId,
@@ -94,13 +95,17 @@ export default function Sessions() {
   const isSelectingRef = useRef(false);
   const keyboardWasHiddenBeforeSelectionRef = useRef(false);
 
+  const isIPad = Platform.OS === "ios" && Math.min(width, height) >= 768;
   const maxKeyboardHeight = getMaxKeyboardHeight(height, isLandscape);
   const effectiveKeyboardHeight = isLandscape
     ? Math.min(lastKeyboardHeight, maxKeyboardHeight)
     : lastKeyboardHeight;
-  const currentKeyboardHeight = isLandscape
+  const rawKeyboardHeight = isLandscape
     ? Math.min(keyboardHeight, maxKeyboardHeight)
     : keyboardHeight;
+  const currentKeyboardHeight = isIPad
+    ? Math.max(0, rawKeyboardHeight - insets.bottom)
+    : rawKeyboardHeight;
 
   const customKeyboardHeight = Math.max(
     200,
@@ -809,6 +814,7 @@ export default function Sessions() {
             contextMenuHidden
             underlineColorAndroid="transparent"
             multiline
+            inputAccessoryViewID="terminal-noop"
             onChangeText={() => {}}
             onKeyPress={({ nativeEvent }) => {
               const key = nativeEvent.key;
@@ -818,51 +824,58 @@ export default function Sessions() {
 
               if (!activeRef?.current) return;
 
-              let finalKey = key;
+              let finalKey: string | null = null;
 
-              if (activeModifiers.ctrl) {
-                switch (key.toLowerCase()) {
-                  case "c":
-                    finalKey = "\x03";
-                    break;
-                  case "d":
-                    finalKey = "\x04";
-                    break;
-                  case "z":
-                    finalKey = "\x1a";
-                    break;
-                  case "l":
-                    finalKey = "\x0c";
-                    break;
-                  case "a":
-                    finalKey = "\x01";
-                    break;
-                  case "e":
-                    finalKey = "\x05";
-                    break;
-                  case "k":
-                    finalKey = "\x0b";
-                    break;
-                  case "u":
-                    finalKey = "\x15";
-                    break;
-                  case "w":
-                    finalKey = "\x17";
-                    break;
-                  default:
-                    if (key.length === 1) {
-                      finalKey = String.fromCharCode(key.charCodeAt(0) & 0x1f);
+              switch (key) {
+                case "Enter":      finalKey = "\r"; break;
+                case "Backspace":  finalKey = "\x7f"; break;
+                case "Tab":        finalKey = "\t"; break;
+                case "Escape":     finalKey = "\x1b"; break;
+                case "Delete":     finalKey = "\x1b[3~"; break;
+                case "Home":       finalKey = "\x1b[H"; break;
+                case "End":        finalKey = "\x1b[F"; break;
+                case "PageUp":     finalKey = "\x1b[5~"; break;
+                case "PageDown":   finalKey = "\x1b[6~"; break;
+                case "ArrowUp":    finalKey = "\x1b[A"; break;
+                case "ArrowDown":  finalKey = "\x1b[B"; break;
+                case "ArrowRight": finalKey = "\x1b[C"; break;
+                case "ArrowLeft":  finalKey = "\x1b[D"; break;
+                case "F1":  finalKey = "\x1bOP"; break;
+                case "F2":  finalKey = "\x1bOQ"; break;
+                case "F3":  finalKey = "\x1bOR"; break;
+                case "F4":  finalKey = "\x1bOS"; break;
+                case "F5":  finalKey = "\x1b[15~"; break;
+                case "F6":  finalKey = "\x1b[17~"; break;
+                case "F7":  finalKey = "\x1b[18~"; break;
+                case "F8":  finalKey = "\x1b[19~"; break;
+                case "F9":  finalKey = "\x1b[20~"; break;
+                case "F10": finalKey = "\x1b[21~"; break;
+                case "F11": finalKey = "\x1b[23~"; break;
+                case "F12": finalKey = "\x1b[24~"; break;
+                default:
+                  if (key.length === 1) {
+                    if (activeModifiers.ctrl) {
+                      switch (key.toLowerCase()) {
+                        case "c": finalKey = "\x03"; break;
+                        case "d": finalKey = "\x04"; break;
+                        case "z": finalKey = "\x1a"; break;
+                        case "l": finalKey = "\x0c"; break;
+                        case "a": finalKey = "\x01"; break;
+                        case "e": finalKey = "\x05"; break;
+                        case "k": finalKey = "\x0b"; break;
+                        case "u": finalKey = "\x15"; break;
+                        case "w": finalKey = "\x17"; break;
+                        default:  finalKey = String.fromCharCode(key.charCodeAt(0) & 0x1f);
+                      }
+                    } else if (activeModifiers.alt) {
+                      finalKey = `\x1b${key}`;
+                    } else {
+                      finalKey = key;
                     }
-                }
-              } else if (activeModifiers.alt) {
-                finalKey = `\x1b${key}`;
+                  }
               }
 
-              if (key === "Enter") {
-                activeRef.current.sendInput("\r");
-              } else if (key === "Backspace") {
-                activeRef.current.sendInput("\b");
-              } else if (key.length === 1) {
+              if (finalKey !== null) {
                 activeRef.current.sendInput(finalKey);
               }
             }}
@@ -897,6 +910,12 @@ export default function Sessions() {
             }}
           />
         )}
+
+      {Platform.OS === "ios" && (
+        <InputAccessoryView nativeID="terminal-noop">
+          <View style={{ height: 0 }} />
+        </InputAccessoryView>
+      )}
     </View>
   );
 }
