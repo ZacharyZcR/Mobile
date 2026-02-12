@@ -809,7 +809,21 @@ export default function Sessions() {
             contextMenuHidden
             underlineColorAndroid="transparent"
             multiline
-            onChangeText={() => {}}
+            onChangeText={(text) => {
+              if (!text) return;
+              // Handle IME composition output that onKeyPress may miss
+              // CJK/non-ASCII text is committed IME output, safe to send
+              if (/[^\x00-\x7F]/.test(text) && text.length > 1) {
+                const activeRef = activeSessionId
+                  ? terminalRefs.current[activeSessionId]
+                  : null;
+                if (activeRef?.current) {
+                  activeRef.current.sendInput(text);
+                }
+              }
+              // Clear to prevent text accumulation
+              hiddenInputRef.current?.setNativeProps({ text: "" });
+            }}
             onKeyPress={({ nativeEvent }) => {
               const key = nativeEvent.key;
               const activeRef = activeSessionId
@@ -820,7 +834,7 @@ export default function Sessions() {
 
               let finalKey = key;
 
-              if (activeModifiers.ctrl) {
+              if (activeModifiers.ctrl && key.length === 1) {
                 switch (key.toLowerCase()) {
                   case "c":
                     finalKey = "\x03";
@@ -850,11 +864,9 @@ export default function Sessions() {
                     finalKey = "\x17";
                     break;
                   default:
-                    if (key.length === 1) {
-                      finalKey = String.fromCharCode(key.charCodeAt(0) & 0x1f);
-                    }
+                    finalKey = String.fromCharCode(key.charCodeAt(0) & 0x1f);
                 }
-              } else if (activeModifiers.alt) {
+              } else if (activeModifiers.alt && key.length === 1) {
                 finalKey = `\x1b${key}`;
               }
 
@@ -862,7 +874,10 @@ export default function Sessions() {
                 activeRef.current.sendInput("\r");
               } else if (key === "Backspace") {
                 activeRef.current.sendInput("\b");
-              } else if (key.length === 1) {
+              } else if (key.length === 1 || !/^[A-Z]/.test(key)) {
+                // key.length === 1: regular single-char input
+                // !/^[A-Z]/: multi-char IME output (CJK text doesn't start with A-Z)
+                // Named keys like "Shift", "Unidentified" start with uppercase, excluded
                 activeRef.current.sendInput(finalKey);
               }
             }}
