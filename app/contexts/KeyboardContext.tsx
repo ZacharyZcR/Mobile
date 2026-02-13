@@ -38,7 +38,11 @@ export const KeyboardProvider: React.FC<{ children: React.ReactNode }> = ({
       if (Platform.OS === "android") {
         newHeight = screenHeight - keyboardTop;
       } else {
-        newHeight = e.endCoordinates.height;
+        // Use screenHeight - screenY so the value represents how much the
+        // keyboard overlaps the bottom of the screen. On iPhone this equals
+        // e.endCoordinates.height. On iPad it correctly accounts for the
+        // keyboard position (e.g. docked vs floating).
+        newHeight = Math.max(0, screenHeight - keyboardTop);
       }
 
       if (newHeight > 0) {

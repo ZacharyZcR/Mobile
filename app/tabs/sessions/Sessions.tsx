@@ -53,7 +53,6 @@ export default function Sessions() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const { height, isLandscape } = useOrientation();
-  const isIPad = Platform.OS === "ios" && Platform.isPad;
   const {
     sessions,
     activeSessionId,
@@ -140,7 +139,7 @@ export default function Sessions() {
     }
 
     if (isKeyboardVisible && currentKeyboardHeight > 0) {
-      return KEYBOARD_BAR_HEIGHT + currentKeyboardHeight + (isIPad ? insets.bottom : 0);
+      return KEYBOARD_BAR_HEIGHT + currentKeyboardHeight;
     }
 
     return KEYBOARD_BAR_HEIGHT;
@@ -167,7 +166,7 @@ export default function Sessions() {
 
     if (isKeyboardVisible && currentKeyboardHeight > 0) {
       return (
-        SESSION_TAB_BAR_HEIGHT + KEYBOARD_BAR_HEIGHT + currentKeyboardHeight + (isIPad ? insets.bottom : 0)
+        SESSION_TAB_BAR_HEIGHT + KEYBOARD_BAR_HEIGHT + currentKeyboardHeight
       );
     }
 
@@ -692,7 +691,7 @@ export default function Sessions() {
               bottom: keyboardIntentionallyHiddenRef.current
                 ? 0
                 : isKeyboardVisible && currentKeyboardHeight > 0
-                  ? currentKeyboardHeight + (isLandscape ? 4 : 0) + (isIPad ? insets.bottom : 0)
+                  ? currentKeyboardHeight + (isLandscape ? 4 : 0)
                   : 0,
               left: 0,
               right: 0,
