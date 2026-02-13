@@ -357,7 +357,7 @@ const TerminalComponent = forwardRef<TerminalHandle, TerminalProps>(
 
     const fitAddon = new FitAddon.FitAddon();
     terminal.loadAddon(fitAddon);
-    
+
     terminal.open(document.getElementById('terminal'));
 
     fitAddon.fit();

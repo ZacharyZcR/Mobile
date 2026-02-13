@@ -53,6 +53,7 @@ export default function Sessions() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const { height, isLandscape } = useOrientation();
+  const isIPad = Platform.OS === "ios" && Platform.isPad;
   const {
     sessions,
     activeSessionId,
@@ -87,6 +88,18 @@ export default function Sessions() {
     Dimensions.get("window"),
   );
   const [keyboardType, setKeyboardType] = useState<any>("default");
+  const [hiddenInputValue, setHiddenInputValue] = useState("");
+  const dictationBufferRef = useRef("");
+  const dictationSentRef = useRef("");
+  const dictationTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Reset dictation state when switching sessions so accumulated text from
+  // the previous session doesn't bleed into the next one.
+  useEffect(() => {
+    if (dictationTimerRef.current) clearTimeout(dictationTimerRef.current);
+    dictationBufferRef.current = "";
+    dictationSentRef.current = "";
+    setHiddenInputValue("");
+  }, [activeSessionId]);
   const lastBlurTimeRef = useRef<number>(0);
   const [terminalBackgroundColors, setTerminalBackgroundColors] = useState<
     Record<string, string>
@@ -127,7 +140,7 @@ export default function Sessions() {
     }
 
     if (isKeyboardVisible && currentKeyboardHeight > 0) {
-      return KEYBOARD_BAR_HEIGHT + currentKeyboardHeight;
+      return KEYBOARD_BAR_HEIGHT + currentKeyboardHeight + (isIPad ? insets.bottom : 0);
     }
 
     return KEYBOARD_BAR_HEIGHT;
@@ -154,7 +167,7 @@ export default function Sessions() {
 
     if (isKeyboardVisible && currentKeyboardHeight > 0) {
       return (
-        SESSION_TAB_BAR_HEIGHT + KEYBOARD_BAR_HEIGHT + currentKeyboardHeight
+        SESSION_TAB_BAR_HEIGHT + KEYBOARD_BAR_HEIGHT + currentKeyboardHeight + (isIPad ? insets.bottom : 0)
       );
     }
 
@@ -679,7 +692,7 @@ export default function Sessions() {
               bottom: keyboardIntentionallyHiddenRef.current
                 ? 0
                 : isKeyboardVisible && currentKeyboardHeight > 0
-                  ? currentKeyboardHeight + (isLandscape ? 4 : 0)
+                  ? currentKeyboardHeight + (isLandscape ? 4 : 0) + (isIPad ? insets.bottom : 0)
                   : 0,
               left: 0,
               right: 0,
@@ -805,11 +818,71 @@ export default function Sessions() {
             autoCapitalize="none"
             spellCheck={false}
             textContentType="none"
+            importantForAutofill="no"
+            autoComplete="off"
             caretHidden
             contextMenuHidden
             underlineColorAndroid="transparent"
-            multiline
-            onChangeText={() => {}}
+            value={hiddenInputValue}
+            onChangeText={(text) => {
+              // Deletions are handled by onKeyPress (Backspace → \x7f).
+              // If text shrank, it's the emoji keyboard's delete button removing
+              // a character that onKeyPress already handled — ignore it to avoid
+              // sending the remaining text as new input.
+              if (text.length <= dictationSentRef.current.length) {
+                dictationSentRef.current = text;
+                dictationBufferRef.current = "";
+                if (!text) setHiddenInputValue("");
+                return;
+              }
+              if (!text) {
+                dictationBufferRef.current = "";
+                dictationSentRef.current = "";
+                return;
+              }
+              const activeRef = activeSessionId
+                ? terminalRefs.current[activeSessionId]
+                : null;
+              if (!activeRef?.current) {
+                setHiddenInputValue("");
+                dictationBufferRef.current = "";
+                return;
+              }
+              // iOS dictation sends incremental updates (e.g. "h" → "he" → "hel"
+              // → "hello"). We accumulate in a ref and debounce so only the final
+              // result is sent. Emoji/paste arrive as a single event so the timer
+              // fires immediately after with the full text.
+              dictationBufferRef.current = text;
+              setHiddenInputValue(text);
+              if (dictationTimerRef.current)
+                clearTimeout(dictationTimerRef.current);
+              dictationTimerRef.current = setTimeout(() => {
+                const finalText = dictationBufferRef.current;
+                const alreadySent = dictationSentRef.current;
+                dictationBufferRef.current = "";
+                setHiddenInputValue("");
+                // Only send the new suffix that hasn't been sent yet.
+                // iOS keeps all dictated text in the field across words, so
+                // alreadySent tracks the cumulative text we've already forwarded.
+                if (finalText.startsWith(alreadySent)) {
+                  const newText = finalText.slice(alreadySent.length);
+                  if (newText) {
+                    dictationSentRef.current = finalText;
+                    activeRef.current?.sendInput(newText);
+                  }
+                } else {
+                  // Text was replaced/autocorrected — send the whole thing
+                  dictationSentRef.current = finalText;
+                  if (finalText) activeRef.current?.sendInput(finalText);
+                }
+              }, 300);
+            }}
+            onSubmitEditing={() => {
+              const activeRef = activeSessionId
+                ? terminalRefs.current[activeSessionId]
+                : null;
+              activeRef?.current?.sendInput("\r");
+            }}
             onKeyPress={({ nativeEvent }) => {
               const key = nativeEvent.key;
               const activeRef = activeSessionId
