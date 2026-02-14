@@ -718,6 +718,14 @@ export default function Sessions() {
           </View>
         )}
 
+      {isKeyboardVisible && (
+        <View style={{ position: "absolute", top: insets.top + 8, left: 8, backgroundColor: "rgba(0,0,0,0.85)", padding: 8, zIndex: 9999, borderRadius: 6 }}>
+          <Text style={{ color: "#0f0", fontSize: 11, fontFamily: "monospace" }}>
+            {`kbH=${keyboardHeight} curKbH=${currentKeyboardHeight} maxKbH=${Math.round(maxKeyboardHeight)}\nwindowH=${Math.round(height)} insB=${insets.bottom} landscape=${isLandscape}\nbarBottom=${isKeyboardVisible && currentKeyboardHeight > 0 ? currentKeyboardHeight + (isLandscape ? 4 : 0) : 0}`}
+          </Text>
+        </View>
+      )}
+
       {sessions.length > 0 &&
         (activeSession?.type === "stats" ||
           activeSession?.type === "filemanager") &&
