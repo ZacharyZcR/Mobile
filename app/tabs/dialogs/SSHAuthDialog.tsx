@@ -270,6 +270,10 @@ const SSHAuthDialogComponent: React.FC<SSHAuthDialogProps> = ({
                   placeholderTextColor="#6B7280"
                   secureTextEntry
                   autoFocus={false}
+                  autoCorrect={false}
+                  autoCapitalize="none"
+                  importantForAutofill="no"
+                  autoComplete="off"
                   onSubmitEditing={handleSubmit}
                 />
               </View>
@@ -310,6 +314,10 @@ const SSHAuthDialogComponent: React.FC<SSHAuthDialogProps> = ({
                     multiline
                     numberOfLines={6}
                     autoFocus={false}
+                    autoCorrect={false}
+                    autoCapitalize="none"
+                    importantForAutofill="no"
+                    autoComplete="off"
                   />
                 </View>
                 <View style={{ marginBottom: 24 }}>
@@ -339,6 +347,10 @@ const SSHAuthDialogComponent: React.FC<SSHAuthDialogProps> = ({
                     placeholder="Key password (if encrypted)"
                     placeholderTextColor="#6B7280"
                     secureTextEntry
+                    autoCorrect={false}
+                    autoCapitalize="none"
+                    importantForAutofill="no"
+                    autoComplete="off"
                     onSubmitEditing={handleSubmit}
                   />
                 </View>

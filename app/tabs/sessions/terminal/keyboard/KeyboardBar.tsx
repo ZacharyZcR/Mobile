@@ -47,10 +47,12 @@ export default function KeyboardBar({
         break;
       case "tab":
       case "complete":
+      case "comp":
         sendKey("\t");
         break;
       case "arrowUp":
       case "history":
+      case "hist":
         sendKey("\x1b[A");
         break;
       case "arrowDown":
@@ -72,7 +74,7 @@ export default function KeyboardBar({
 
   const handlePaste = async () => {
     try {
-      const clipboardContent = await Clipboard.getString();
+      const clipboardContent = await Clipboard.getStringAsync();
       if (clipboardContent) {
         sendKey(clipboardContent);
       }

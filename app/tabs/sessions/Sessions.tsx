@@ -88,6 +88,18 @@ export default function Sessions() {
     Dimensions.get("window"),
   );
   const [keyboardType, setKeyboardType] = useState<any>("default");
+  const [hiddenInputValue, setHiddenInputValue] = useState("");
+  const dictationBufferRef = useRef("");
+  const dictationSentRef = useRef("");
+  const dictationTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Reset dictation state when switching sessions so accumulated text from
+  // the previous session doesn't bleed into the next one.
+  useEffect(() => {
+    if (dictationTimerRef.current) clearTimeout(dictationTimerRef.current);
+    dictationBufferRef.current = "";
+    dictationSentRef.current = "";
+    setHiddenInputValue("");
+  }, [activeSessionId]);
   const lastBlurTimeRef = useRef<number>(0);
   const [terminalBackgroundColors, setTerminalBackgroundColors] = useState<
     Record<string, string>
@@ -720,6 +732,14 @@ export default function Sessions() {
           </View>
         )}
 
+      {isKeyboardVisible && (
+        <View style={{ position: "absolute", top: insets.top + 8, left: 8, backgroundColor: "rgba(0,0,0,0.85)", padding: 8, zIndex: 9999, borderRadius: 6 }}>
+          <Text style={{ color: "#0f0", fontSize: 11, fontFamily: "monospace" }}>
+            {`kbH=${keyboardHeight} curKbH=${currentKeyboardHeight} maxKbH=${Math.round(maxKeyboardHeight)}\nwindowH=${Math.round(height)} insB=${insets.bottom} landscape=${isLandscape}\nbarBottom=${isKeyboardVisible && currentKeyboardHeight > 0 ? currentKeyboardHeight + (isLandscape ? 4 : 0) : 0}`}
+          </Text>
+        </View>
+      )}
+
       {sessions.length > 0 &&
         (activeSession?.type === "stats" ||
           activeSession?.type === "filemanager") &&
@@ -819,11 +839,71 @@ export default function Sessions() {
             autoCapitalize="none"
             spellCheck={false}
             textContentType="none"
+            importantForAutofill="no"
+            autoComplete="off"
             caretHidden
             contextMenuHidden
             underlineColorAndroid="transparent"
-            multiline
-            onChangeText={() => {}}
+            value={hiddenInputValue}
+            onChangeText={(text) => {
+              // Deletions are handled by onKeyPress (Backspace → \x7f).
+              // If text shrank, it's the emoji keyboard's delete button removing
+              // a character that onKeyPress already handled — ignore it to avoid
+              // sending the remaining text as new input.
+              if (text.length <= dictationSentRef.current.length) {
+                dictationSentRef.current = text;
+                dictationBufferRef.current = "";
+                if (!text) setHiddenInputValue("");
+                return;
+              }
+              if (!text) {
+                dictationBufferRef.current = "";
+                dictationSentRef.current = "";
+                return;
+              }
+              const activeRef = activeSessionId
+                ? terminalRefs.current[activeSessionId]
+                : null;
+              if (!activeRef?.current) {
+                setHiddenInputValue("");
+                dictationBufferRef.current = "";
+                return;
+              }
+              // iOS dictation sends incremental updates (e.g. "h" → "he" → "hel"
+              // → "hello"). We accumulate in a ref and debounce so only the final
+              // result is sent. Emoji/paste arrive as a single event so the timer
+              // fires immediately after with the full text.
+              dictationBufferRef.current = text;
+              setHiddenInputValue(text);
+              if (dictationTimerRef.current)
+                clearTimeout(dictationTimerRef.current);
+              dictationTimerRef.current = setTimeout(() => {
+                const finalText = dictationBufferRef.current;
+                const alreadySent = dictationSentRef.current;
+                dictationBufferRef.current = "";
+                setHiddenInputValue("");
+                // Only send the new suffix that hasn't been sent yet.
+                // iOS keeps all dictated text in the field across words, so
+                // alreadySent tracks the cumulative text we've already forwarded.
+                if (finalText.startsWith(alreadySent)) {
+                  const newText = finalText.slice(alreadySent.length);
+                  if (newText) {
+                    dictationSentRef.current = finalText;
+                    activeRef.current?.sendInput(newText);
+                  }
+                } else {
+                  // Text was replaced/autocorrected — send the whole thing
+                  dictationSentRef.current = finalText;
+                  if (finalText) activeRef.current?.sendInput(finalText);
+                }
+              }, 300);
+            }}
+            onSubmitEditing={() => {
+              const activeRef = activeSessionId
+                ? terminalRefs.current[activeSessionId]
+                : null;
+              activeRef?.current?.sendInput("\r");
+            }}
             onKeyPress={({ nativeEvent }) => {
               const key = nativeEvent.key;
               const activeRef = activeSessionId
@@ -832,44 +912,55 @@ export default function Sessions() {
 
               if (!activeRef?.current) return;
 
-              let finalKey = key;
+              let finalKey: string | null = null;
 
-              if (activeModifiers.ctrl) {
-                switch (key.toLowerCase()) {
-                  case "c":
-                    finalKey = "\x03";
-                    break;
-                  case "d":
-                    finalKey = "\x04";
-                    break;
-                  case "z":
-                    finalKey = "\x1a";
-                    break;
-                  case "l":
-                    finalKey = "\x0c";
-                    break;
-                  case "a":
-                    finalKey = "\x01";
-                    break;
-                  case "e":
-                    finalKey = "\x05";
-                    break;
-                  case "k":
-                    finalKey = "\x0b";
-                    break;
-                  case "u":
-                    finalKey = "\x15";
-                    break;
-                  case "w":
-                    finalKey = "\x17";
-                    break;
-                  default:
-                    if (key.length === 1) {
-                      finalKey = String.fromCharCode(key.charCodeAt(0) & 0x1f);
+              switch (key) {
+                case "Enter":      finalKey = "\r"; break;
+                case "Backspace":  finalKey = "\x7f"; break;
+                case "Tab":        finalKey = "\t"; break;
+                case "Escape":     finalKey = "\x1b"; break;
+                case "Delete":     finalKey = "\x1b[3~"; break;
+                case "Home":       finalKey = "\x1b[H"; break;
+                case "End":        finalKey = "\x1b[F"; break;
+                case "PageUp":     finalKey = "\x1b[5~"; break;
+                case "PageDown":   finalKey = "\x1b[6~"; break;
+                case "ArrowUp":    finalKey = "\x1b[A"; break;
+                case "ArrowDown":  finalKey = "\x1b[B"; break;
+                case "ArrowRight": finalKey = "\x1b[C"; break;
+                case "ArrowLeft":  finalKey = "\x1b[D"; break;
+                case "F1":  finalKey = "\x1bOP"; break;
+                case "F2":  finalKey = "\x1bOQ"; break;
+                case "F3":  finalKey = "\x1bOR"; break;
+                case "F4":  finalKey = "\x1bOS"; break;
+                case "F5":  finalKey = "\x1b[15~"; break;
+                case "F6":  finalKey = "\x1b[17~"; break;
+                case "F7":  finalKey = "\x1b[18~"; break;
+                case "F8":  finalKey = "\x1b[19~"; break;
+                case "F9":  finalKey = "\x1b[20~"; break;
+                case "F10": finalKey = "\x1b[21~"; break;
+                case "F11": finalKey = "\x1b[23~"; break;
+                case "F12": finalKey = "\x1b[24~"; break;
+                default:
+                  if (key.length === 1) {
+                    if (activeModifiers.ctrl) {
+                      switch (key.toLowerCase()) {
+                        case "c": finalKey = "\x03"; break;
+                        case "d": finalKey = "\x04"; break;
+                        case "z": finalKey = "\x1a"; break;
+                        case "l": finalKey = "\x0c"; break;
+                        case "a": finalKey = "\x01"; break;
+                        case "e": finalKey = "\x05"; break;
+                        case "k": finalKey = "\x0b"; break;
+                        case "u": finalKey = "\x15"; break;
+                        case "w": finalKey = "\x17"; break;
+                        default:  finalKey = String.fromCharCode(key.charCodeAt(0) & 0x1f);
+                      }
+                    } else if (activeModifiers.alt) {
+                      finalKey = `\x1b${key}`;
+                    } else {
+                      finalKey = key;
                     }
-                }
-              } else if (activeModifiers.alt) {
-                finalKey = `\x1b${key}`;
+                  }
               }
 
               if (key === "Enter") {
@@ -923,6 +1014,7 @@ export default function Sessions() {
             }}
           />
         )}
+
     </View>
   );
 }
