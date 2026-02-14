@@ -48,6 +48,7 @@ import {
   BORDER_COLORS,
   BORDERS,
 } from "@/app/constants/designTokens";
+import { addKeyCommandListener } from "@/modules/hardware-keyboard";
 
 export default function Sessions() {
   const insets = useSafeAreaInsets();
@@ -386,6 +387,19 @@ export default function Sessions() {
     isCustomKeyboardVisible,
     customKeyboardHeight,
   ]);
+
+  useEffect(() => {
+    if (Platform.OS !== "ios") return;
+    const sub = addKeyCommandListener((event) => {
+      if (event.input === "\t" && event.shift) {
+        const activeRef = activeSessionId
+          ? terminalRefs.current[activeSessionId]
+          : null;
+        activeRef?.current?.sendInput("\x1b[Z");
+      }
+    });
+    return () => sub.remove();
+  }, [activeSessionId]);
 
   useFocusEffect(
     React.useCallback(() => {
@@ -949,7 +963,23 @@ export default function Sessions() {
                   }
               }
 
-              if (finalKey !== null) {
+              if (key === "Enter") {
+                activeRef.current.sendInput("\r");
+              } else if (key === "Backspace") {
+                activeRef.current.sendInput("\b");
+              } else if (key === "Tab") {
+                activeRef.current.sendInput("\t");
+              } else if (key === "Escape") {
+                activeRef.current.sendInput("\x1b");
+              } else if (key === "ArrowUp") {
+                activeRef.current.sendInput("\x1b[A");
+              } else if (key === "ArrowDown") {
+                activeRef.current.sendInput("\x1b[B");
+              } else if (key === "ArrowRight") {
+                activeRef.current.sendInput("\x1b[C");
+              } else if (key === "ArrowLeft") {
+                activeRef.current.sendInput("\x1b[D");
+              } else if (key.length === 1) {
                 activeRef.current.sendInput(finalKey);
               }
             }}
