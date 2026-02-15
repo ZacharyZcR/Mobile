@@ -54,6 +54,7 @@ export default function Sessions() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const { height, isLandscape } = useOrientation();
+  const isIPad = Platform.OS === "ios" && Platform.isPad;
   const {
     sessions,
     activeSessionId,
@@ -107,7 +108,7 @@ export default function Sessions() {
   const isSelectingRef = useRef(false);
   const keyboardWasHiddenBeforeSelectionRef = useRef(false);
 
-  const maxKeyboardHeight = getMaxKeyboardHeight(height, isLandscape);
+  const maxKeyboardHeight = getMaxKeyboardHeight(height, isLandscape, isIPad);
   const effectiveKeyboardHeight = isLandscape
     ? Math.min(lastKeyboardHeight, maxKeyboardHeight)
     : lastKeyboardHeight;
@@ -391,14 +392,24 @@ export default function Sessions() {
   useEffect(() => {
     if (Platform.OS !== "ios") return;
     const sub = addKeyCommandListener((event) => {
-      if (event.input === "\t" && event.shift) {
-        const activeRef = activeSessionId
-          ? terminalRefs.current[activeSessionId]
-          : null;
-        activeRef?.current?.sendInput("\x1b[Z");
+      const activeRef = activeSessionId
+        ? terminalRefs.current[activeSessionId]
+        : null;
+      if (!activeRef?.current) return;
+
+      if (event.shift && event.input === "\t") {
+        activeRef.current.sendInput("\x1b[Z");
+        return;
+      }
+
+      if (event.ctrl) {
+        const ch = event.input.toLowerCase();
+        const code = ch.charCodeAt(0) & 0x1f;
+        activeRef.current.sendInput(String.fromCharCode(code));
+        return;
       }
     });
-    return () => sub.remove();
+    return () => sub?.remove();
   }, [activeSessionId]);
 
   useFocusEffect(
@@ -705,7 +716,7 @@ export default function Sessions() {
               bottom: keyboardIntentionallyHiddenRef.current
                 ? 0
                 : isKeyboardVisible && currentKeyboardHeight > 0
-                  ? currentKeyboardHeight + (isLandscape ? 4 : 0)
+                  ? currentKeyboardHeight + (isLandscape && !isIPad ? 4 : 0)
                   : 0,
               left: 0,
               right: 0,
@@ -732,15 +743,7 @@ export default function Sessions() {
           </View>
         )}
 
-      {isKeyboardVisible && (
-        <View style={{ position: "absolute", top: insets.top + 8, left: 8, backgroundColor: "rgba(0,0,0,0.85)", padding: 8, zIndex: 9999, borderRadius: 6 }}>
-          <Text style={{ color: "#0f0", fontSize: 11, fontFamily: "monospace" }}>
-            {`kbH=${keyboardHeight} curKbH=${currentKeyboardHeight} maxKbH=${Math.round(maxKeyboardHeight)}\nwindowH=${Math.round(height)} insB=${insets.bottom} landscape=${isLandscape}\nbarBottom=${isKeyboardVisible && currentKeyboardHeight > 0 ? currentKeyboardHeight + (isLandscape ? 4 : 0) : 0}`}
-          </Text>
-        </View>
-      )}
-
-      {sessions.length > 0 &&
+{sessions.length > 0 &&
         (activeSession?.type === "stats" ||
           activeSession?.type === "filemanager") &&
         isCustomKeyboardVisible && (
@@ -943,18 +946,7 @@ export default function Sessions() {
                 default:
                   if (key.length === 1) {
                     if (activeModifiers.ctrl) {
-                      switch (key.toLowerCase()) {
-                        case "c": finalKey = "\x03"; break;
-                        case "d": finalKey = "\x04"; break;
-                        case "z": finalKey = "\x1a"; break;
-                        case "l": finalKey = "\x0c"; break;
-                        case "a": finalKey = "\x01"; break;
-                        case "e": finalKey = "\x05"; break;
-                        case "k": finalKey = "\x0b"; break;
-                        case "u": finalKey = "\x15"; break;
-                        case "w": finalKey = "\x17"; break;
-                        default:  finalKey = String.fromCharCode(key.charCodeAt(0) & 0x1f);
-                      }
+                      finalKey = String.fromCharCode(key.charCodeAt(0) & 0x1f);
                     } else if (activeModifiers.alt) {
                       finalKey = `\x1b${key}`;
                     } else {
@@ -963,23 +955,7 @@ export default function Sessions() {
                   }
               }
 
-              if (key === "Enter") {
-                activeRef.current.sendInput("\r");
-              } else if (key === "Backspace") {
-                activeRef.current.sendInput("\b");
-              } else if (key === "Tab") {
-                activeRef.current.sendInput("\t");
-              } else if (key === "Escape") {
-                activeRef.current.sendInput("\x1b");
-              } else if (key === "ArrowUp") {
-                activeRef.current.sendInput("\x1b[A");
-              } else if (key === "ArrowDown") {
-                activeRef.current.sendInput("\x1b[B");
-              } else if (key === "ArrowRight") {
-                activeRef.current.sendInput("\x1b[C");
-              } else if (key === "ArrowLeft") {
-                activeRef.current.sendInput("\x1b[D");
-              } else if (key.length === 1) {
+              if (finalKey !== null) {
                 activeRef.current.sendInput(finalKey);
               }
             }}
