@@ -2,21 +2,22 @@ import ExpoModulesCore
 import UIKit
 
 public class HardwareKeyboardModule: Module {
-  static weak var instance: HardwareKeyboardModule?
   private static var swizzled = false
+  private static var instances: [ObjectIdentifier: HardwareKeyboardModule] = [:]
 
   public func definition() -> ModuleDefinition {
     Name("HardwareKeyboard")
 
     Events("onKeyCommand")
 
-    OnStartObserving {
-      HardwareKeyboardModule.instance = self
+    OnCreate {
+      // Register immediately on creation, not waiting for a listener
+      HardwareKeyboardModule.instances[ObjectIdentifier(self)] = self
       HardwareKeyboardModule.swizzleIfNeeded()
     }
 
-    OnStopObserving {
-      HardwareKeyboardModule.instance = nil
+    OnDestroy {
+      HardwareKeyboardModule.instances.removeValue(forKey: ObjectIdentifier(self))
     }
   }
 
@@ -38,13 +39,11 @@ public class HardwareKeyboardModule: Module {
     method_exchangeImplementations(original, replacement)
   }
 
-  func emit(_ input: String, shift: Bool, ctrl: Bool = false, alt: Bool = false) {
-    sendEvent("onKeyCommand", [
-      "input": input,
-      "shift": shift,
-      "ctrl": ctrl,
-      "alt": alt,
-    ])
+  static func emitToAll(_ input: String, shift: Bool, ctrl: Bool = false, alt: Bool = false) {
+    let payload: [String: Any] = ["input": input, "shift": shift, "ctrl": ctrl, "alt": alt]
+    for instance in instances.values {
+      instance.sendEvent("onKeyCommand", payload)
+    }
   }
 }
 
@@ -53,15 +52,11 @@ extension UIViewController {
     var commands = self.hk_keyCommands() ?? []
 
     // Shift+Tab
-    let shiftTab = UIKeyCommand(
-      input: "\t",
-      modifierFlags: .shift,
-      action: #selector(hk_handleShiftTab)
-    )
+    let shiftTab = UIKeyCommand(input: "\t", modifierFlags: .shift, action: #selector(hk_handleShiftTab))
     shiftTab.wantsPriorityOverSystemBehavior = true
     commands.append(shiftTab)
 
-    // Arrow keys (no modifier) — registered individually so we can use distinct selectors
+    // Arrow keys
     let upCmd = UIKeyCommand(input: UIKeyCommand.inputUpArrow, modifierFlags: [], action: #selector(hk_handleArrowUp))
     upCmd.wantsPriorityOverSystemBehavior = true
     commands.append(upCmd)
@@ -89,11 +84,7 @@ extension UIViewController {
       "[","]","\\",
     ]
     for input in ctrlInputs {
-      let cmd = UIKeyCommand(
-        input: input,
-        modifierFlags: .control,
-        action: #selector(hk_handleCtrlKey(_:))
-      )
+      let cmd = UIKeyCommand(input: input, modifierFlags: .control, action: #selector(hk_handleCtrlKey(_:)))
       cmd.wantsPriorityOverSystemBehavior = true
       commands.append(cmd)
     }
@@ -101,21 +92,15 @@ extension UIViewController {
     return commands
   }
 
-  @objc func hk_handleShiftTab() {
-    HardwareKeyboardModule.instance?.emit("\t", shift: true)
-  }
-
-  @objc func hk_handleArrowUp()    { HardwareKeyboardModule.instance?.emit("ArrowUp",    shift: false) }
-  @objc func hk_handleArrowDown()  { HardwareKeyboardModule.instance?.emit("ArrowDown",  shift: false) }
-  @objc func hk_handleArrowLeft()  { HardwareKeyboardModule.instance?.emit("ArrowLeft",  shift: false) }
-  @objc func hk_handleArrowRight() { HardwareKeyboardModule.instance?.emit("ArrowRight", shift: false) }
-
-  @objc func hk_handleEscape() {
-    HardwareKeyboardModule.instance?.emit("Escape", shift: false)
-  }
+  @objc func hk_handleShiftTab()   { HardwareKeyboardModule.emitToAll("\t",         shift: true) }
+  @objc func hk_handleArrowUp()    { HardwareKeyboardModule.emitToAll("ArrowUp",    shift: false) }
+  @objc func hk_handleArrowDown()  { HardwareKeyboardModule.emitToAll("ArrowDown",  shift: false) }
+  @objc func hk_handleArrowLeft()  { HardwareKeyboardModule.emitToAll("ArrowLeft",  shift: false) }
+  @objc func hk_handleArrowRight() { HardwareKeyboardModule.emitToAll("ArrowRight", shift: false) }
+  @objc func hk_handleEscape()     { HardwareKeyboardModule.emitToAll("Escape",     shift: false) }
 
   @objc func hk_handleCtrlKey(_ sender: UIKeyCommand) {
     guard let input = sender.input else { return }
-    HardwareKeyboardModule.instance?.emit(input, shift: false, ctrl: true)
+    HardwareKeyboardModule.emitToAll(input, shift: false, ctrl: true)
   }
 }
