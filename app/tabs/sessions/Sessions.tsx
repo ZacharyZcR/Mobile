@@ -408,6 +408,19 @@ export default function Sessions() {
         activeRef.current.sendInput(String.fromCharCode(code));
         return;
       }
+
+      // Arrow keys and Escape from UIKeyCommand (not fired by onKeyPress)
+      const specialMap: Record<string, string> = {
+        ArrowUp:    "\x1b[A",
+        ArrowDown:  "\x1b[B",
+        ArrowLeft:  "\x1b[D",
+        ArrowRight: "\x1b[C",
+        Escape:     "\x1b",
+      };
+      if (specialMap[event.input]) {
+        activeRef.current.sendInput(specialMap[event.input]);
+        return;
+      }
     });
     return () => sub?.remove();
   }, [activeSessionId]);
@@ -831,7 +844,7 @@ export default function Sessions() {
               backgroundColor: "transparent",
               zIndex: -1,
             }}
-            pointerEvents="none"
+            pointerEvents="box-none"
             autoFocus={false}
             showSoftInputOnFocus={true}
             keyboardType={keyboardType}
