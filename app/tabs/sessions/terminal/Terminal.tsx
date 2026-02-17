@@ -14,14 +14,15 @@ import {
   AccessibilityInfo,
 } from "react-native";
 import { WebView } from "react-native-webview";
-import {
-  logActivity,
-  getSnippets,
-} from "../../../main-axios";
+import { logActivity, getSnippets } from "../../../main-axios";
 import { showToast } from "../../../utils/toast";
 import { useTerminalCustomization } from "../../../contexts/TerminalCustomizationContext";
 import { BACKGROUNDS, BORDER_COLORS } from "../../../constants/designTokens";
-import { TOTPDialog, SSHAuthDialog, HostKeyVerificationDialog } from "@/app/tabs/dialogs";
+import {
+  TOTPDialog,
+  SSHAuthDialog,
+  HostKeyVerificationDialog,
+} from "@/app/tabs/dialogs";
 import { TERMINAL_THEMES, TERMINAL_FONTS } from "@/constants/terminal-themes";
 import { MOBILE_DEFAULT_TERMINAL_CONFIG } from "@/constants/terminal-config";
 import type { TerminalConfig } from "@/types";
@@ -78,7 +79,9 @@ const TerminalComponent = forwardRef<TerminalHandle, TerminalProps>(
     const terminalColsRef = useRef(80);
     const terminalRowsRef = useRef(24);
     const pendingDataRef = useRef<string[]>([]);
-    const dataFlushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const dataFlushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
+      null,
+    );
 
     const { config } = useTerminalCustomization();
     const [webViewKey, setWebViewKey] = useState(0);
@@ -116,7 +119,9 @@ const TerminalComponent = forwardRef<TerminalHandle, TerminalProps>(
     const isScreenReaderEnabledRef = useRef(false);
     const [accessibilityText, setAccessibilityText] = useState("");
     const accessibilityBufferRef = useRef<string[]>([]);
-    const accessibilityTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const accessibilityTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
+      null,
+    );
 
     useEffect(() => {
       AccessibilityInfo.isScreenReaderEnabled().then((enabled) => {
@@ -148,7 +153,8 @@ const TerminalComponent = forwardRef<TerminalHandle, TerminalProps>(
 
       accessibilityBufferRef.current.push(...lines);
       if (accessibilityBufferRef.current.length > 5) {
-        accessibilityBufferRef.current = accessibilityBufferRef.current.slice(-5);
+        accessibilityBufferRef.current =
+          accessibilityBufferRef.current.slice(-5);
       }
 
       if (accessibilityTimerRef.current) {
@@ -380,7 +386,6 @@ const TerminalComponent = forwardRef<TerminalHandle, TerminalProps>(
 
     fitAddon.fit();
 
-    // Disable autocomplete and suggestions on all input elements
     setTimeout(() => {
       const inputs = document.querySelectorAll('input, textarea, .xterm-helper-textarea');
       inputs.forEach(input => {
@@ -394,12 +399,10 @@ const TerminalComponent = forwardRef<TerminalHandle, TerminalProps>(
       });
     }, 100);
 
-    // Called by RN via injectJavaScript to write server data
     window.writeToTerminal = function(data) {
       try { terminal.write(data); } catch(e) {}
     };
 
-    // Called by RN after WS connects — always clear so stale output isn't left
     window.notifyConnected = function(fromBackground) {
       terminal.clear();
       terminal.reset();
@@ -590,7 +593,6 @@ const TerminalComponent = forwardRef<TerminalHandle, TerminalProps>(
     terminal.reset();
     terminal.write('\\x1b[2J\\x1b[H');
 
-    // Tell RN the terminal is ready with its initial size
     setTimeout(function() {
       fitAddon.fit();
       if (window.ReactNativeWebView) {
@@ -604,7 +606,12 @@ const TerminalComponent = forwardRef<TerminalHandle, TerminalProps>(
 </body>
 </html>
     `;
-    }, [hostConfig, screenDimensions, config.fontSize, onBackgroundColorChange]);
+    }, [
+      hostConfig,
+      screenDimensions,
+      config.fontSize,
+      onBackgroundColorChange,
+    ]);
 
     useEffect(() => {
       setHtmlContent(generateHTML());
@@ -689,40 +696,39 @@ const TerminalComponent = forwardRef<TerminalHandle, TerminalProps>(
       [],
     );
 
-    const handleWebViewMessage = useCallback(
-      (event: any) => {
-        try {
-          const message = JSON.parse(event.nativeEvent.data);
+    const handleWebViewMessage = useCallback((event: any) => {
+      try {
+        const message = JSON.parse(event.nativeEvent.data);
 
-          switch (message.type) {
-            case "terminalReady":
-              terminalColsRef.current = message.data.cols;
-              terminalRowsRef.current = message.data.rows;
-              wsManagerRef.current?.connect(message.data.cols, message.data.rows);
-              break;
+        switch (message.type) {
+          case "terminalReady":
+            terminalColsRef.current = message.data.cols;
+            terminalRowsRef.current = message.data.rows;
+            wsManagerRef.current?.connect(message.data.cols, message.data.rows);
+            break;
 
-            case "resize":
-              terminalColsRef.current = message.data.cols;
-              terminalRowsRef.current = message.data.rows;
-              wsManagerRef.current?.sendResize(message.data.cols, message.data.rows);
-              break;
+          case "resize":
+            terminalColsRef.current = message.data.cols;
+            terminalRowsRef.current = message.data.rows;
+            wsManagerRef.current?.sendResize(
+              message.data.cols,
+              message.data.rows,
+            );
+            break;
 
-            case "selectionStart":
-              setIsSelecting(true);
-              break;
+          case "selectionStart":
+            setIsSelecting(true);
+            break;
 
-            case "selectionEnd":
-              setIsSelecting(false);
-              break;
-          }
-        } catch (error) {
-          console.error("[Terminal] Error parsing WebView message:", error);
+          case "selectionEnd":
+            setIsSelecting(false);
+            break;
         }
-      },
-      [],
-    );
+      } catch (error) {
+        console.error("[Terminal] Error parsing WebView message:", error);
+      }
+    }, []);
 
-    // Create/destroy manager on hostConfig.id change
     useEffect(() => {
       wsManagerRef.current?.destroy();
 
@@ -732,7 +738,9 @@ const TerminalComponent = forwardRef<TerminalHandle, TerminalProps>(
           switch (state) {
             case "connecting":
               setConnectionState(
-                (data?.retryCount as number) > 0 ? "reconnecting" : "connecting",
+                (data?.retryCount as number) > 0
+                  ? "reconnecting"
+                  : "connecting",
               );
               setRetryCount((data?.retryCount as number) || 0);
               break;
@@ -741,10 +749,8 @@ const TerminalComponent = forwardRef<TerminalHandle, TerminalProps>(
               setConnectionState("connected");
               setRetryCount(0);
               if (!fromBackground) {
-                // Fresh connection — hide terminal until data arrives
                 setHasReceivedData(false);
               }
-              // Always clear stale terminal content on every (re)connect
               webViewRef.current?.injectJavaScript(
                 `window.notifyConnected(${fromBackground}); true;`,
               );
@@ -803,10 +809,9 @@ const TerminalComponent = forwardRef<TerminalHandle, TerminalProps>(
 
       const html = generateHTML();
       setHtmlContent(html);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+      // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [hostConfig.id]);
 
-    // Cleanup on unmount
     useEffect(() => {
       return () => {
         wsManagerRef.current?.destroy();
@@ -885,7 +890,11 @@ const TerminalComponent = forwardRef<TerminalHandle, TerminalProps>(
         >
           <View
             style={{ flex: 1, backgroundColor: terminalBackgroundColor }}
-            pointerEvents={totpRequired || showAuthDialog || hostKeyVerification !== null ? "none" : "auto"}
+            pointerEvents={
+              totpRequired || showAuthDialog || hostKeyVerification !== null
+                ? "none"
+                : "auto"
+            }
           >
             <WebView
               key={`terminal-${hostConfig.id}-${webViewKey}`}

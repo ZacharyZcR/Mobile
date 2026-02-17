@@ -29,8 +29,6 @@ export function getMaxKeyboardHeight(
   isIPad: boolean = false,
 ): number {
   if (!isLandscape) return screenHeight;
-  // iPad landscape keyboards are taller than iPhone landscape keyboards.
-  // Use a higher cap (60%) so the real keyboard height isn't clamped.
   const cap = isIPad ? 0.6 : 0.4;
   return screenHeight * cap;
 }

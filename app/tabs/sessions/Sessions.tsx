@@ -93,8 +93,6 @@ export default function Sessions() {
   const dictationBufferRef = useRef("");
   const dictationSentRef = useRef("");
   const dictationTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  // Reset dictation state when switching sessions so accumulated text from
-  // the previous session doesn't bleed into the next one.
   useEffect(() => {
     if (dictationTimerRef.current) clearTimeout(dictationTimerRef.current);
     dictationBufferRef.current = "";
@@ -409,13 +407,12 @@ export default function Sessions() {
         return;
       }
 
-      // Arrow keys and Escape from UIKeyCommand (not fired by onKeyPress)
       const specialMap: Record<string, string> = {
-        ArrowUp:    "\x1b[A",
-        ArrowDown:  "\x1b[B",
-        ArrowLeft:  "\x1b[D",
+        ArrowUp: "\x1b[A",
+        ArrowDown: "\x1b[B",
+        ArrowLeft: "\x1b[D",
         ArrowRight: "\x1b[C",
-        Escape:     "\x1b",
+        Escape: "\x1b",
       };
       if (specialMap[event.input]) {
         activeRef.current.sendInput(specialMap[event.input]);
@@ -756,7 +753,7 @@ export default function Sessions() {
           </View>
         )}
 
-{sessions.length > 0 &&
+      {sessions.length > 0 &&
         (activeSession?.type === "stats" ||
           activeSession?.type === "filemanager") &&
         isCustomKeyboardVisible && (
@@ -862,13 +859,7 @@ export default function Sessions() {
             underlineColorAndroid="transparent"
             value={hiddenInputValue}
             onChangeText={(text) => {
-              // Deletions are handled by onKeyPress (Backspace → \x7f).
-              // If text shrank, it's the emoji keyboard's delete button removing
-              // a character that onKeyPress already handled — ignore it to avoid
-              // sending the remaining text as new input.
               if (text.length <= dictationSentRef.current.length) {
-                // If text went to "" while a pending timer/buffer exists, this is an
-                // Android IME post-commit clear — flush the buffer immediately.
                 const hasPendingBuffer =
                   Platform.OS === "android" &&
                   !text &&
@@ -915,10 +906,6 @@ export default function Sessions() {
                 dictationBufferRef.current = "";
                 return;
               }
-              // iOS dictation sends incremental updates (e.g. "h" → "he" → "hel"
-              // → "hello"). We accumulate in a ref and debounce so only the final
-              // result is sent. Emoji/paste arrive as a single event so the timer
-              // fires immediately after with the full text.
               dictationBufferRef.current = text;
               setHiddenInputValue(text);
               if (dictationTimerRef.current)
@@ -929,9 +916,6 @@ export default function Sessions() {
                 dictationBufferRef.current = "";
                 dictationTimerRef.current = null;
                 setHiddenInputValue("");
-                // Only send the new suffix that hasn't been sent yet.
-                // iOS keeps all dictated text in the field across words, so
-                // alreadySent tracks the cumulative text we've already forwarded.
                 if (finalText.startsWith(alreadySent)) {
                   const newText = finalText.slice(alreadySent.length);
                   if (newText) {
@@ -939,7 +923,6 @@ export default function Sessions() {
                     activeRef.current?.sendInput(newText);
                   }
                 } else {
-                  // Text was replaced/autocorrected — send the whole thing
                   dictationSentRef.current = finalText;
                   if (finalText) activeRef.current?.sendInput(finalText);
                 }
@@ -962,31 +945,81 @@ export default function Sessions() {
               let finalKey: string | null = null;
 
               switch (key) {
-                case "Enter":      finalKey = "\r"; break;
-                case "Backspace":  finalKey = "\x7f"; break;
-                case "Tab":        finalKey = "\t"; break;
-                case "Escape":     finalKey = "\x1b"; break;
-                case "Delete":     finalKey = "\x1b[3~"; break;
-                case "Home":       finalKey = "\x1b[H"; break;
-                case "End":        finalKey = "\x1b[F"; break;
-                case "PageUp":     finalKey = "\x1b[5~"; break;
-                case "PageDown":   finalKey = "\x1b[6~"; break;
-                case "ArrowUp":    finalKey = "\x1b[A"; break;
-                case "ArrowDown":  finalKey = "\x1b[B"; break;
-                case "ArrowRight": finalKey = "\x1b[C"; break;
-                case "ArrowLeft":  finalKey = "\x1b[D"; break;
-                case "F1":  finalKey = "\x1bOP"; break;
-                case "F2":  finalKey = "\x1bOQ"; break;
-                case "F3":  finalKey = "\x1bOR"; break;
-                case "F4":  finalKey = "\x1bOS"; break;
-                case "F5":  finalKey = "\x1b[15~"; break;
-                case "F6":  finalKey = "\x1b[17~"; break;
-                case "F7":  finalKey = "\x1b[18~"; break;
-                case "F8":  finalKey = "\x1b[19~"; break;
-                case "F9":  finalKey = "\x1b[20~"; break;
-                case "F10": finalKey = "\x1b[21~"; break;
-                case "F11": finalKey = "\x1b[23~"; break;
-                case "F12": finalKey = "\x1b[24~"; break;
+                case "Enter":
+                  finalKey = "\r";
+                  break;
+                case "Backspace":
+                  finalKey = "\x7f";
+                  break;
+                case "Tab":
+                  finalKey = "\t";
+                  break;
+                case "Escape":
+                  finalKey = "\x1b";
+                  break;
+                case "Delete":
+                  finalKey = "\x1b[3~";
+                  break;
+                case "Home":
+                  finalKey = "\x1b[H";
+                  break;
+                case "End":
+                  finalKey = "\x1b[F";
+                  break;
+                case "PageUp":
+                  finalKey = "\x1b[5~";
+                  break;
+                case "PageDown":
+                  finalKey = "\x1b[6~";
+                  break;
+                case "ArrowUp":
+                  finalKey = "\x1b[A";
+                  break;
+                case "ArrowDown":
+                  finalKey = "\x1b[B";
+                  break;
+                case "ArrowRight":
+                  finalKey = "\x1b[C";
+                  break;
+                case "ArrowLeft":
+                  finalKey = "\x1b[D";
+                  break;
+                case "F1":
+                  finalKey = "\x1bOP";
+                  break;
+                case "F2":
+                  finalKey = "\x1bOQ";
+                  break;
+                case "F3":
+                  finalKey = "\x1bOR";
+                  break;
+                case "F4":
+                  finalKey = "\x1bOS";
+                  break;
+                case "F5":
+                  finalKey = "\x1b[15~";
+                  break;
+                case "F6":
+                  finalKey = "\x1b[17~";
+                  break;
+                case "F7":
+                  finalKey = "\x1b[18~";
+                  break;
+                case "F8":
+                  finalKey = "\x1b[19~";
+                  break;
+                case "F9":
+                  finalKey = "\x1b[20~";
+                  break;
+                case "F10":
+                  finalKey = "\x1b[21~";
+                  break;
+                case "F11":
+                  finalKey = "\x1b[23~";
+                  break;
+                case "F12":
+                  finalKey = "\x1b[24~";
+                  break;
                 default:
                   if (key.length === 1) {
                     if (activeModifiers.ctrl) {
@@ -1034,7 +1067,6 @@ export default function Sessions() {
             }}
           />
         )}
-
     </View>
   );
 }

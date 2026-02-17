@@ -37,8 +37,13 @@ export interface NativeWSConfig {
   onStateChange: (state: WsState, data?: Record<string, unknown>) => void;
   onData: (data: string) => void;
   onTotpRequired: (prompt: string, isPassword: boolean) => void;
-  onAuthDialogNeeded: (reason: "no_keyboard" | "auth_failed" | "timeout") => void;
-  onHostKeyVerificationRequired?: (scenario: "new" | "changed", data: HostKeyData) => void;
+  onAuthDialogNeeded: (
+    reason: "no_keyboard" | "auth_failed" | "timeout",
+  ) => void;
+  onHostKeyVerificationRequired?: (
+    scenario: "new" | "changed",
+    data: HostKeyData,
+  ) => void;
   onPostConnectionSetup: () => void;
   onDisconnected: (hostName: string) => void;
   onConnectionFailed: (message: string) => void;
@@ -187,7 +192,10 @@ export class NativeWebSocketManager {
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
       try {
         this.ws.send(
-          JSON.stringify({ type: "reconnect_with_credentials", data: messageData }),
+          JSON.stringify({
+            type: "reconnect_with_credentials",
+            data: messageData,
+          }),
         );
       } catch (e) {}
     }
@@ -203,8 +211,6 @@ export class NativeWebSocketManager {
       clearTimeout(this.connectionTimeout);
       this.connectionTimeout = null;
     }
-    // RN JS thread stays alive longer but the WS may still drop;
-    // record state only and reconnect non-destructively on foreground.
   }
 
   notifyForegrounded(): void {
@@ -215,16 +221,13 @@ export class NativeWebSocketManager {
     if (this.destroyed) return;
 
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-      // Socket survived — just resume pinging, nothing to do
       this.startPingInterval();
       return;
     }
 
-    // Socket is dead — reconnect
     this.isReconnectFromBackground = true;
     this.reconnectAttempts = 1;
 
-    // Null out handlers so the stale close event doesn't trigger scheduleReconnect
     if (this.ws) {
       try {
         this.ws.onclose = null;
@@ -240,13 +243,13 @@ export class NativeWebSocketManager {
     this.connectWebSocket();
   }
 
-  // ─── Private ─────────────────────────────────────────────────────────────
-
   private connectWebSocket(): void {
     if (this.destroyed) return;
 
     if (!this.wsUrl) {
-      this.notifyFailureOnce("No WebSocket URL available - server not configured");
+      this.notifyFailureOnce(
+        "No WebSocket URL available - server not configured",
+      );
       return;
     }
 
@@ -254,7 +257,6 @@ export class NativeWebSocketManager {
       return;
     }
 
-    // Clean up any existing WS
     if (this.ws) {
       try {
         this.ws.onopen = null;
@@ -283,7 +285,10 @@ export class NativeWebSocketManager {
           ws.onclose = null;
           ws.close();
         } catch (_) {}
-        if (!this.shouldNotReconnect && this.reconnectAttempts < this.maxReconnectAttempts) {
+        if (
+          !this.shouldNotReconnect &&
+          this.reconnectAttempts < this.maxReconnectAttempts
+        ) {
           this.scheduleReconnect();
         } else {
           this.notifyFailureOnce("Connection timeout - server not responding");
@@ -349,7 +354,10 @@ export class NativeWebSocketManager {
             this.connectionTimeout = null;
           }
           if (this.config.onHostKeyVerificationRequired) {
-            this.config.onHostKeyVerificationRequired("new", msg.data as HostKeyData);
+            this.config.onHostKeyVerificationRequired(
+              "new",
+              msg.data as HostKeyData,
+            );
           }
         } else if (msg.type === "host_key_changed") {
           if (this.connectionTimeout) {
@@ -357,7 +365,10 @@ export class NativeWebSocketManager {
             this.connectionTimeout = null;
           }
           if (this.config.onHostKeyVerificationRequired) {
-            this.config.onHostKeyVerificationRequired("changed", msg.data as HostKeyData);
+            this.config.onHostKeyVerificationRequired(
+              "changed",
+              msg.data as HostKeyData,
+            );
           }
         } else if (msg.type === "error") {
           const message = (msg.message as string) || "Unknown error";
@@ -380,12 +391,9 @@ export class NativeWebSocketManager {
         } else if (msg.type === "disconnected") {
           this.config.onDisconnected(this.config.hostConfig.name);
         } else if (msg.type === "pong") {
-          // connection healthy
         } else if (msg.type === "resized") {
-          // acknowledged
         }
       } catch (_) {
-        // Raw data fallback
         this.config.onData(event.data as string);
       }
     };
@@ -398,7 +406,6 @@ export class NativeWebSocketManager {
       this.stopPingInterval();
 
       if (this.isAppInBackground) {
-        // DO NOT reconnect while backgrounded; reconnect on foreground
         return;
       }
 
@@ -439,7 +446,10 @@ export class NativeWebSocketManager {
 
     this.reconnectAttempts += 1;
 
-    const delay = Math.min(1000 * Math.pow(2, this.reconnectAttempts - 1), 5000);
+    const delay = Math.min(
+      1000 * Math.pow(2, this.reconnectAttempts - 1),
+      5000,
+    );
 
     this.config.onStateChange("connecting", {
       retryCount: this.reconnectAttempts,

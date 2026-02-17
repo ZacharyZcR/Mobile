@@ -29,8 +29,7 @@ interface HostKeyVerificationDialogProps {
   onReject: () => void;
 }
 
-const formatFingerprint = (fp: string) =>
-  fp.match(/.{1,2}/g)?.join(":") || fp;
+const formatFingerprint = (fp: string) => fp.match(/.{1,2}/g)?.join(":") || fp;
 
 const FingerprintRow: React.FC<{
   label: string;
@@ -144,9 +143,7 @@ const HostKeyVerificationDialogComponent: React.FC<
   const accentColor = isChanged ? "#ef4444" : "#22c55e";
   const accentBorder = isChanged ? "#dc2626" : "#16a34a";
 
-  const hostLabel = data
-    ? `${data.hostname || data.ip}:${data.port}`
-    : "";
+  const hostLabel = data ? `${data.hostname || data.ip}:${data.port}` : "";
 
   return (
     <Modal
@@ -184,7 +181,6 @@ const HostKeyVerificationDialogComponent: React.FC<
               alignSelf: "center",
             }}
           >
-            {/* Header */}
             <View
               style={{
                 flexDirection: "row",
@@ -210,7 +206,6 @@ const HostKeyVerificationDialogComponent: React.FC<
               </Text>
             </View>
 
-            {/* Subtitle */}
             <Text
               style={{
                 color: "#6b7280",
@@ -222,7 +217,6 @@ const HostKeyVerificationDialogComponent: React.FC<
               {hostLabel}
             </Text>
 
-            {/* Info / Warning box */}
             <View
               style={{
                 backgroundColor: isChanged
@@ -250,7 +244,6 @@ const HostKeyVerificationDialogComponent: React.FC<
               </Text>
             </View>
 
-            {/* Fingerprints */}
             {data && isChanged && data.oldFingerprint ? (
               <>
                 <FingerprintRow
@@ -275,7 +268,6 @@ const HostKeyVerificationDialogComponent: React.FC<
               />
             ) : null}
 
-            {/* Buttons */}
             <View style={{ flexDirection: "row", gap: 12, marginTop: 4 }}>
               <TouchableOpacity
                 onPress={onReject}
