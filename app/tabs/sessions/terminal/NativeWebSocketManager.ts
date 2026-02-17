@@ -21,12 +21,24 @@ export type WsState =
   | "dataReceived"
   | "connectionFailed";
 
+export interface HostKeyData {
+  ip: string;
+  port: number;
+  hostname?: string;
+  fingerprint: string;
+  oldFingerprint?: string;
+  keyType: string;
+  oldKeyType?: string;
+  algorithm: string;
+}
+
 export interface NativeWSConfig {
   hostConfig: TerminalHostConfig;
   onStateChange: (state: WsState, data?: Record<string, unknown>) => void;
   onData: (data: string) => void;
   onTotpRequired: (prompt: string, isPassword: boolean) => void;
   onAuthDialogNeeded: (reason: "no_keyboard" | "auth_failed" | "timeout") => void;
+  onHostKeyVerificationRequired?: (scenario: "new" | "changed", data: HostKeyData) => void;
   onPostConnectionSetup: () => void;
   onDisconnected: (hostName: string) => void;
   onConnectionFailed: (message: string) => void;
@@ -129,6 +141,19 @@ export class NativeWebSocketManager {
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
       try {
         this.ws.send(JSON.stringify({ type: responseType, data: { code } }));
+      } catch (e) {}
+    }
+  }
+
+  sendHostKeyResponse(action: "accept" | "reject"): void {
+    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+      try {
+        this.ws.send(
+          JSON.stringify({
+            type: "host_key_verification_response",
+            data: { action },
+          }),
+        );
       } catch (e) {}
     }
   }
@@ -318,6 +343,22 @@ export class NativeWebSocketManager {
           msg.type === "auth_method_not_available"
         ) {
           this.config.onAuthDialogNeeded("no_keyboard");
+        } else if (msg.type === "host_key_verification_required") {
+          if (this.connectionTimeout) {
+            clearTimeout(this.connectionTimeout);
+            this.connectionTimeout = null;
+          }
+          if (this.config.onHostKeyVerificationRequired) {
+            this.config.onHostKeyVerificationRequired("new", msg.data as HostKeyData);
+          }
+        } else if (msg.type === "host_key_changed") {
+          if (this.connectionTimeout) {
+            clearTimeout(this.connectionTimeout);
+            this.connectionTimeout = null;
+          }
+          if (this.config.onHostKeyVerificationRequired) {
+            this.config.onHostKeyVerificationRequired("changed", msg.data as HostKeyData);
+          }
         } else if (msg.type === "error") {
           const message = (msg.message as string) || "Unknown error";
           if (this.isUnrecoverableError(message)) {

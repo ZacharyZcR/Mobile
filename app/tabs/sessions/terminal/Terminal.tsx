@@ -21,13 +21,14 @@ import {
 import { showToast } from "../../../utils/toast";
 import { useTerminalCustomization } from "../../../contexts/TerminalCustomizationContext";
 import { BACKGROUNDS, BORDER_COLORS } from "../../../constants/designTokens";
-import { TOTPDialog, SSHAuthDialog } from "@/app/tabs/dialogs";
+import { TOTPDialog, SSHAuthDialog, HostKeyVerificationDialog } from "@/app/tabs/dialogs";
 import { TERMINAL_THEMES, TERMINAL_FONTS } from "@/constants/terminal-themes";
 import { MOBILE_DEFAULT_TERMINAL_CONFIG } from "@/constants/terminal-config";
 import type { TerminalConfig } from "@/types";
 import {
   NativeWebSocketManager,
   type TerminalHostConfig,
+  type HostKeyData,
 } from "./NativeWebSocketManager";
 
 interface TerminalProps {
@@ -106,6 +107,10 @@ const TerminalComponent = forwardRef<TerminalHandle, TerminalProps>(
       "no_keyboard" | "auth_failed" | "timeout"
     >("auth_failed");
     const [isSelecting, setIsSelecting] = useState(false);
+    const [hostKeyVerification, setHostKeyVerification] = useState<{
+      scenario: "new" | "changed";
+      data: HostKeyData;
+    } | null>(null);
 
     const [isScreenReaderEnabled, setIsScreenReaderEnabled] = useState(false);
     const isScreenReaderEnabledRef = useRef(false);
@@ -779,6 +784,9 @@ const TerminalComponent = forwardRef<TerminalHandle, TerminalProps>(
           setShowAuthDialog(true);
           setConnectionState("disconnected");
         },
+        onHostKeyVerificationRequired: (scenario, data) => {
+          setHostKeyVerification({ scenario, data });
+        },
         onPostConnectionSetup: () => handlePostConnectionSetup(),
         onDisconnected: (hostName) => {
           setConnectionState("disconnected");
@@ -828,7 +836,7 @@ const TerminalComponent = forwardRef<TerminalHandle, TerminalProps>(
           } catch (e) {}
         },
         isDialogOpen: () => {
-          return totpRequired || showAuthDialog;
+          return totpRequired || showAuthDialog || hostKeyVerification !== null;
         },
         notifyBackgrounded: () => {
           wsManagerRef.current?.notifyBackgrounded();
@@ -847,7 +855,7 @@ const TerminalComponent = forwardRef<TerminalHandle, TerminalProps>(
           return isSelecting;
         },
       }),
-      [totpRequired, showAuthDialog, isSelecting],
+      [totpRequired, showAuthDialog, hostKeyVerification, isSelecting],
     );
 
     return (
@@ -877,7 +885,7 @@ const TerminalComponent = forwardRef<TerminalHandle, TerminalProps>(
         >
           <View
             style={{ flex: 1, backgroundColor: terminalBackgroundColor }}
-            pointerEvents={totpRequired || showAuthDialog ? "none" : "auto"}
+            pointerEvents={totpRequired || showAuthDialog || hostKeyVerification !== null ? "none" : "auto"}
           >
             <WebView
               key={`terminal-${hostConfig.id}-${webViewKey}`}
@@ -1050,6 +1058,21 @@ const TerminalComponent = forwardRef<TerminalHandle, TerminalProps>(
             username: hostConfig.username,
           }}
           reason={authDialogReason}
+        />
+
+        <HostKeyVerificationDialog
+          visible={hostKeyVerification !== null}
+          scenario={hostKeyVerification?.scenario ?? "new"}
+          data={hostKeyVerification?.data ?? null}
+          onAccept={() => {
+            wsManagerRef.current?.sendHostKeyResponse("accept");
+            setHostKeyVerification(null);
+          }}
+          onReject={() => {
+            wsManagerRef.current?.sendHostKeyResponse("reject");
+            setHostKeyVerification(null);
+            if (onClose) onClose();
+          }}
         />
       </View>
     );
