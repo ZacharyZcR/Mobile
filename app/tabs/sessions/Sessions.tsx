@@ -867,7 +867,37 @@ export default function Sessions() {
               // a character that onKeyPress already handled — ignore it to avoid
               // sending the remaining text as new input.
               if (text.length <= dictationSentRef.current.length) {
-                dictationSentRef.current = text;
+                // If text went to "" while a pending timer/buffer exists, this is an
+                // Android IME post-commit clear — flush the buffer immediately.
+                const hasPendingBuffer =
+                  Platform.OS === "android" &&
+                  !text &&
+                  dictationBufferRef.current &&
+                  dictationTimerRef.current !== null;
+
+                if (hasPendingBuffer) {
+                  clearTimeout(dictationTimerRef.current!);
+                  dictationTimerRef.current = null;
+                  const pendingText = dictationBufferRef.current;
+                  const alreadySent = dictationSentRef.current;
+                  dictationBufferRef.current = "";
+                  dictationSentRef.current = "";
+                  setHiddenInputValue("");
+                  const activeRef = activeSessionId
+                    ? terminalRefs.current[activeSessionId]
+                    : null;
+                  if (activeRef?.current) {
+                    if (pendingText.startsWith(alreadySent)) {
+                      const newText = pendingText.slice(alreadySent.length);
+                      if (newText) activeRef.current.sendInput(newText);
+                    } else {
+                      if (pendingText) activeRef.current.sendInput(pendingText);
+                    }
+                  }
+                  return;
+                }
+
+                if (text) dictationSentRef.current = text;
                 dictationBufferRef.current = "";
                 if (!text) setHiddenInputValue("");
                 return;
@@ -897,6 +927,7 @@ export default function Sessions() {
                 const finalText = dictationBufferRef.current;
                 const alreadySent = dictationSentRef.current;
                 dictationBufferRef.current = "";
+                dictationTimerRef.current = null;
                 setHiddenInputValue("");
                 // Only send the new suffix that hasn't been sent yet.
                 // iOS keeps all dictated text in the field across words, so
