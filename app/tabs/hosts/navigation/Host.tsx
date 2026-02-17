@@ -20,7 +20,6 @@ import {
 } from "lucide-react-native";
 import { SSHHost } from "@/types";
 import { useTerminalSessions } from "@/app/contexts/TerminalSessionsContext";
-import { showToast } from "@/app/utils/toast";
 import { useEffect, useRef, useState } from "react";
 import { StatsConfig, DEFAULT_STATS_CONFIG } from "@/constants/stats-config";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -111,28 +110,16 @@ function Host({ host, status, isLast = false }: HostProps) {
   };
 
   const handleTerminalPress = () => {
-    if (host.authType === "none") {
-      showToast.error("None auth type is not supported");
-      return;
-    }
     navigateToSessions(host, "terminal");
     setShowContextMenu(false);
   };
 
   const handleStatsPress = () => {
-    if (host.authType === "none") {
-      showToast.error("None auth type is not supported");
-      return;
-    }
     navigateToSessions(host, "stats");
     setShowContextMenu(false);
   };
 
   const handleFileManagerPress = () => {
-    if (host.authType === "none") {
-      showToast.error("None auth type is not supported");
-      return;
-    }
     navigateToSessions(host, "filemanager");
     setShowContextMenu(false);
   };
