@@ -18,7 +18,7 @@ See [Projects](https://github.com/orgs/Termix-SSH/projects/2) for all planned fe
 
 # Features
 
-- **SSH Terminal** - SSH terminal with multi-session support. Switch between two keyboard modes: the system keyboard and a custom terminal keyboard that is optimized for terminal use. The custom keyboard is completely configurable to your preferences.
+- **SSH Terminal** - SSH terminal with multi-session support. Switch between two keyboard modes: the system keyboard and a custom terminal keyboard that is optimized for terminal use. The custom keyboard is completely configurable to your preferences. Has support for background-keepalive, VoiceOver, dication, Bluetooth/physical keyboards, emojis, etc.
 - **SSH File Manager** - View, edit, modify, and move files and folders via SSH.
 - **SSH Server Stats** - Get information on a servers status such as CPU, RAM, HDD, etc. 
 - **SSH Tunnels** - Start, stop, and manage SSH tunnels.
