@@ -11,26 +11,26 @@ import {
   Text,
   ActivityIndicator,
   Dimensions,
-  TouchableWithoutFeedback,
-  Keyboard,
-  TextInput,
-  TouchableOpacity,
+  AccessibilityInfo,
 } from "react-native";
-import * as Clipboard from "expo-clipboard";
 import { WebView } from "react-native-webview";
-import {
-  getCurrentServerUrl,
-  getCookie,
-  logActivity,
-  getSnippets,
-} from "../../../main-axios";
+import { logActivity, getSnippets } from "../../../main-axios";
 import { showToast } from "../../../utils/toast";
 import { useTerminalCustomization } from "../../../contexts/TerminalCustomizationContext";
 import { BACKGROUNDS, BORDER_COLORS } from "../../../constants/designTokens";
-import { TOTPDialog, SSHAuthDialog } from "@/app/tabs/dialogs";
+import {
+  TOTPDialog,
+  SSHAuthDialog,
+  HostKeyVerificationDialog,
+} from "@/app/tabs/dialogs";
 import { TERMINAL_THEMES, TERMINAL_FONTS } from "@/constants/terminal-themes";
 import { MOBILE_DEFAULT_TERMINAL_CONFIG } from "@/constants/terminal-config";
 import type { TerminalConfig } from "@/types";
+import {
+  NativeWebSocketManager,
+  type TerminalHostConfig,
+  type HostKeyData,
+} from "./NativeWebSocketManager";
 
 interface TerminalProps {
   hostConfig: {
@@ -75,6 +75,14 @@ const TerminalComponent = forwardRef<TerminalHandle, TerminalProps>(
     ref,
   ) => {
     const webViewRef = useRef<WebView>(null);
+    const wsManagerRef = useRef<NativeWebSocketManager | null>(null);
+    const terminalColsRef = useRef(80);
+    const terminalRowsRef = useRef(24);
+    const pendingDataRef = useRef<string[]>([]);
+    const dataFlushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
+      null,
+    );
+
     const { config } = useTerminalCustomization();
     const [webViewKey, setWebViewKey] = useState(0);
     const [screenDimensions, setScreenDimensions] = useState(
@@ -91,12 +99,8 @@ const TerminalComponent = forwardRef<TerminalHandle, TerminalProps>(
     const [retryCount, setRetryCount] = useState(0);
     const [hasReceivedData, setHasReceivedData] = useState(false);
     const [htmlContent, setHtmlContent] = useState("");
-    const [currentHostId, setCurrentHostId] = useState<number | null>(null);
     const [terminalBackgroundColor, setTerminalBackgroundColor] =
       useState("#09090b");
-    const connectionTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(
-      null,
-    );
 
     const [totpRequired, setTotpRequired] = useState(false);
     const [totpPrompt, setTotpPrompt] = useState("");
@@ -106,6 +110,64 @@ const TerminalComponent = forwardRef<TerminalHandle, TerminalProps>(
       "no_keyboard" | "auth_failed" | "timeout"
     >("auth_failed");
     const [isSelecting, setIsSelecting] = useState(false);
+    const [hostKeyVerification, setHostKeyVerification] = useState<{
+      scenario: "new" | "changed";
+      data: HostKeyData;
+    } | null>(null);
+
+    const [isScreenReaderEnabled, setIsScreenReaderEnabled] = useState(false);
+    const isScreenReaderEnabledRef = useRef(false);
+    const [accessibilityText, setAccessibilityText] = useState("");
+    const accessibilityBufferRef = useRef<string[]>([]);
+    const accessibilityTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
+      null,
+    );
+
+    useEffect(() => {
+      AccessibilityInfo.isScreenReaderEnabled().then((enabled) => {
+        setIsScreenReaderEnabled(enabled);
+        isScreenReaderEnabledRef.current = enabled;
+      });
+      const subscription = AccessibilityInfo.addEventListener(
+        "screenReaderChanged",
+        (enabled) => {
+          setIsScreenReaderEnabled(enabled);
+          isScreenReaderEnabledRef.current = enabled;
+        },
+      );
+      return () => subscription.remove();
+    }, []);
+
+    const writeToAccessibility = useCallback((rawData: string) => {
+      const cleaned = rawData
+        .replace(/\x1b\[[0-9;]*[mGKHJABCDsu]/g, "")
+        .replace(/\x1b\][^\x07]*\x07/g, "")
+        .replace(/\x1b[()][AB012]/g, "")
+        .replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g, "")
+        .trim();
+
+      if (!cleaned) return;
+
+      const lines = cleaned.split(/\r?\n/).filter((l) => l.trim().length > 0);
+      if (lines.length === 0) return;
+
+      accessibilityBufferRef.current.push(...lines);
+      if (accessibilityBufferRef.current.length > 5) {
+        accessibilityBufferRef.current =
+          accessibilityBufferRef.current.slice(-5);
+      }
+
+      if (accessibilityTimerRef.current) {
+        clearTimeout(accessibilityTimerRef.current);
+      }
+      accessibilityTimerRef.current = setTimeout(() => {
+        accessibilityTimerRef.current = null;
+        const text = accessibilityBufferRef.current.join("\n");
+        accessibilityBufferRef.current = [];
+        setAccessibilityText(text);
+        AccessibilityInfo.announceForAccessibility(text);
+      }, 500);
+    }, []);
 
     useEffect(() => {
       const subscription = Dimensions.addEventListener(
@@ -129,50 +191,8 @@ const TerminalComponent = forwardRef<TerminalHandle, TerminalProps>(
       [onClose],
     );
 
-    const getWebSocketUrl = async () => {
-      const serverUrl = getCurrentServerUrl();
-
-      if (!serverUrl) {
-        showToast.error(
-          "No server URL found - please configure a server first",
-        );
-        return null;
-      }
-
-      const jwtToken = await getCookie("jwt");
-      if (!jwtToken || jwtToken.trim() === "") {
-        showToast.error("Authentication required - please log in again");
-        return null;
-      }
-
-      const wsProtocol = serverUrl.startsWith("https://") ? "wss://" : "ws://";
-      const wsHost = serverUrl.replace(/^https?:\/\//, "");
-      const cleanHost = wsHost.replace(/\/$/, "");
-      const wsUrl = `${wsProtocol}${cleanHost}/ssh/websocket/?token=${encodeURIComponent(jwtToken)}`;
-
-      return wsUrl;
-    };
-
-    const generateHTML = useCallback(async () => {
-      const wsUrl = await getWebSocketUrl();
+    const generateHTML = useCallback(() => {
       const { width, height } = screenDimensions;
-
-      if (!wsUrl) {
-        return `
-<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="utf-8">
-  <title>Terminal</title>
-</head>
-<body style="background-color: #09090b; color: #f7f7f7; font-family: monospace; display: flex; align-items: center; justify-content: center; height: 100vh; margin: 0;">
-  <div style="text-align: center;">
-    <h2>No Server Configured</h2>
-    <p>Please configure a server first</p>
-  </div>
-</body>
-</html>`;
-      }
 
       const terminalConfig: Partial<TerminalConfig> = {
         ...MOBILE_DEFAULT_TERMINAL_CONFIG,
@@ -185,6 +205,9 @@ const TerminalComponent = forwardRef<TerminalHandle, TerminalProps>(
       const lineHeight = baseFontSize * 1.2;
       const terminalWidth = Math.floor(width / charWidth);
       const terminalHeight = Math.floor(height / lineHeight);
+
+      void terminalWidth;
+      void terminalHeight;
 
       const themeName = terminalConfig.theme || "termix";
       const themeColors =
@@ -221,7 +244,7 @@ const TerminalComponent = forwardRef<TerminalHandle, TerminalProps>(
       width: 100vw;
       height: 100vh;
     }
-    
+
     #terminal {
       width: 100vw;
       height: 100vh;
@@ -230,24 +253,24 @@ const TerminalComponent = forwardRef<TerminalHandle, TerminalProps>(
       margin: 0;
       box-sizing: border-box;
     }
-    
+
     .xterm {
       width: 100% !important;
       height: 100% !important;
     }
-    
+
     .xterm-viewport {
       width: 100% !important;
       height: 100% !important;
     }
-    
+
     .xterm {
       font-feature-settings: "liga" 1, "calt" 1;
       text-rendering: optimizeLegibility;
       -webkit-font-smoothing: antialiased;
       -moz-osx-font-smoothing: grayscale;
     }
-    
+
     .xterm .xterm-screen {
       font-family: 'Caskaydia Cove Nerd Font Mono', 'SF Mono', Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace !important;
       font-variant-ligatures: contextual;
@@ -256,7 +279,7 @@ const TerminalComponent = forwardRef<TerminalHandle, TerminalProps>(
     .xterm .xterm-screen .xterm-char {
       font-feature-settings: "liga" 1, "calt" 1;
     }
-    
+
     .xterm .xterm-viewport::-webkit-scrollbar {
       width: 8px;
       background: transparent;
@@ -303,7 +326,7 @@ const TerminalComponent = forwardRef<TerminalHandle, TerminalProps>(
 </head>
 <body>
   <div id="terminal"></div>
-  
+
   <script>
     const screenWidth = ${width};
     const screenHeight = ${height};
@@ -344,6 +367,7 @@ const TerminalComponent = forwardRef<TerminalHandle, TerminalProps>(
       },
       allowTransparency: true,
       convertEol: true,
+      screenReaderMode: true,
       windowsMode: false,
       macOptionIsMeta: false,
       macOptionClickForcesSelection: false,
@@ -357,12 +381,11 @@ const TerminalComponent = forwardRef<TerminalHandle, TerminalProps>(
 
     const fitAddon = new FitAddon.FitAddon();
     terminal.loadAddon(fitAddon);
-    
+
     terminal.open(document.getElementById('terminal'));
 
     fitAddon.fit();
 
-    // Disable autocomplete and suggestions on all input elements
     setTimeout(() => {
       const inputs = document.querySelectorAll('input, textarea, .xterm-helper-textarea');
       inputs.forEach(input => {
@@ -376,112 +399,20 @@ const TerminalComponent = forwardRef<TerminalHandle, TerminalProps>(
       });
     }, 100);
 
-    const hostConfig = ${JSON.stringify(hostConfig)};
-    const wsUrl = '${wsUrl}';
+    window.writeToTerminal = function(data) {
+      try { terminal.write(data); } catch(e) {}
+    };
 
-    let ws = null;
-    window.ws = null;
-    let reconnectAttempts = 0;
-    const maxReconnectAttempts = 3;
-    let reconnectTimeout = null;
-    let connectionTimeout = null;
-    let shouldNotReconnect = false;
-    let hasNotifiedFailure = false;
-    let isAppInBackground = false;
-    let backgroundTime = null;
-    let connectionHealthy = true;
-    let lastPongTime = Date.now();
-    let lastPingSentTime = null;
-
-    let activeTimeouts = [];
-
-    function safeSetTimeout(fn, delay) {
-      const id = setTimeout(() => {
-        activeTimeouts = activeTimeouts.filter(t => t !== id);
-        fn();
-      }, delay);
-      activeTimeouts.push(id);
-      return id;
-    }
-
-    function clearAllTimeouts() {
-      activeTimeouts.forEach(id => clearTimeout(id));
-      activeTimeouts = [];
-    }
-
-    function notifyConnectionState(state, data = {}) {
-      if (window.ReactNativeWebView) {
-        window.ReactNativeWebView.postMessage(JSON.stringify({
-          type: state,
-          data: data
-        }));
-      }
-    }
-
-    function notifyFailureOnce(message) {
-      if (hasNotifiedFailure) return;
-      hasNotifiedFailure = true;
-      notifyConnectionState('connectionFailed', { hostName: hostConfig.name, message });
-    }
-
-    function isUnrecoverableError(message) {
-      if (!message) return false;
-      const m = String(message).toLowerCase();
-      return m.includes('password') || m.includes('authentication') || m.includes('permission denied') || m.includes('invalid') || m.includes('incorrect') || m.includes('denied');
-    }
-
-    function scheduleReconnect() {
-      if (shouldNotReconnect) return;
-
-      if (ws && ws.readyState === WebSocket.OPEN) {
-        return;
-      }
-
-      if (reconnectAttempts >= maxReconnectAttempts) {
-        notifyFailureOnce('Maximum reconnection attempts reached');
-        return;
-      }
-
-      reconnectAttempts += 1;
-
-      const delay = Math.min(1000 * Math.pow(2, reconnectAttempts - 1), 5000);
-
-      notifyConnectionState('connecting', {
-        retryCount: reconnectAttempts
-      });
-
-      if (reconnectTimeout) {
-        clearTimeout(reconnectTimeout);
-      }
-
-      reconnectTimeout = safeSetTimeout(() => {
-        reconnectTimeout = null;
-
-        if (ws && ws.readyState === WebSocket.OPEN) {
-          return;
-        }
-
-        connectWebSocket();
-      }, delay);
-    }
-    
-    window.nativeInput = function(data) {
-      try {
-        if (ws && ws.readyState === WebSocket.OPEN) {
-          ws.send(JSON.stringify({ type: 'input', data: data }));
-        } else {
-          terminal.write(data);
-        }
-      } catch (e) {
-        console.error('[INPUT ERROR]', e);
-      }
-    }
+    window.notifyConnected = function(fromBackground) {
+      terminal.clear();
+      terminal.reset();
+      terminal.write('\\x1b[2J\\x1b[H');
+    };
 
     const terminalElement = document.getElementById('terminal');
 
     window.resetScroll = function() {
       terminal.scrollToBottom();
-      notifyConnectionState('scrollReset', {});
     }
 
     document.addEventListener('focusin', function(e) {
@@ -540,7 +471,7 @@ const TerminalComponent = forwardRef<TerminalHandle, TerminalProps>(
       longPressTimeout = setTimeout(() => {
         if (!hasMoved) {
           if (!isCurrentlySelecting) {
-            notifyConnectionState('selectionStart', {});
+            window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'selectionStart', data: {} }));
             isCurrentlySelecting = true;
           }
         }
@@ -578,7 +509,7 @@ const TerminalComponent = forwardRef<TerminalHandle, TerminalProps>(
           lastInteractionTime = Date.now();
           if (!isCurrentlySelecting) {
             isCurrentlySelecting = true;
-            notifyConnectionState('selectionStart', {});
+            window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'selectionStart', data: {} }));
           }
         } else if (!isCurrentlySelecting && (touchDuration < 350 || hasMoved)) {
           lastInteractionTime = Date.now();
@@ -608,13 +539,13 @@ const TerminalComponent = forwardRef<TerminalHandle, TerminalProps>(
         if (hasSelection) {
           if (!isCurrentlySelecting) {
             isCurrentlySelecting = true;
-            notifyConnectionState('selectionStart', {});
+            window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'selectionStart', data: {} }));
           }
         } else if (isCurrentlySelecting) {
           const timeSinceLastInteraction = Date.now() - lastInteractionTime;
           if (timeSinceLastInteraction >= 150) {
             isCurrentlySelecting = false;
-            notifyConnectionState('selectionEnd', {});
+            window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'selectionEnd', data: {} }));
           } else {
             checkIfDoneSelecting();
           }
@@ -630,7 +561,7 @@ const TerminalComponent = forwardRef<TerminalHandle, TerminalProps>(
         lastInteractionTime = Date.now();
         if (!isCurrentlySelecting) {
           isCurrentlySelecting = true;
-          notifyConnectionState('selectionStart', {});
+          window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'selectionStart', data: {} }));
         }
       } else if (isCurrentlySelecting) {
         lastInteractionTime = Date.now();
@@ -638,228 +569,10 @@ const TerminalComponent = forwardRef<TerminalHandle, TerminalProps>(
       }
     });
 
-    function connectWebSocket() {
-      try {
-        if (!wsUrl) {
-          notifyFailureOnce('No WebSocket URL available - server not configured');
-          return;
-        }
-
-        if (ws && ws.readyState === WebSocket.OPEN) {
-          return;
-        }
-
-        if (ws) {
-          try {
-            ws.onclose = null;
-            ws.onerror = null;
-            ws.onmessage = null;
-            ws.onopen = null;
-            if (ws.readyState === WebSocket.CONNECTING || ws.readyState === WebSocket.OPEN) {
-              ws.close();
-            }
-          } catch (e) {
-            console.error('[CONNECT] Error closing old WebSocket:', e);
-          }
-        }
-
-        notifyConnectionState('connecting', { retryCount: reconnectAttempts });
-
-        ws = new WebSocket(wsUrl);
-        window.ws = ws;
-
-        connectionTimeout = safeSetTimeout(() => {
-          if (ws && ws.readyState === WebSocket.CONNECTING) {
-            try {
-              ws.onclose = null;
-              ws.close();
-            } catch (_) {}
-            if (!shouldNotReconnect && reconnectAttempts < maxReconnectAttempts) {
-              scheduleReconnect();
-            } else {
-              notifyFailureOnce('Connection timeout - server not responding');
-            }
-          }
-        }, 10000);
-        
-        ws.onopen = function() {
-          clearTimeout(connectionTimeout);
-          if (reconnectTimeout) {
-            clearTimeout(reconnectTimeout);
-            reconnectTimeout = null;
-          }
-          clearAllTimeouts();
-
-          hasNotifiedFailure = false;
-          reconnectAttempts = 0;
-
-          terminal.clear();
-          terminal.reset();
-          terminal.write('\x1b[2J\x1b[H');
-
-          const connectMessage = {
-            type: 'connectToHost',
-            data: {
-              cols: terminal.cols,
-              rows: terminal.rows,
-              hostConfig: hostConfig
-            }
-          };
-
-          ws.send(JSON.stringify(connectMessage));
-
-          startPingInterval();
-        };
-        
-        ws.onmessage = function(event) {
-          try {
-            const msg = JSON.parse(event.data);
-
-            if (msg.type === 'data') {
-              terminal.write(msg.data);
-              notifyConnectionState('dataReceived', { hostName: hostConfig.name });
-            } else if (msg.type === 'totp_required') {
-              notifyConnectionState('totpRequired', {
-                prompt: msg.prompt || 'Verification code:',
-                isPassword: false
-              });
-            } else if (msg.type === 'password_required') {
-              notifyConnectionState('totpRequired', {
-                prompt: msg.prompt || 'Password:',
-                isPassword: true
-              });
-            } else if (msg.type === 'keyboard_interactive_available') {
-              notifyConnectionState('authDialogNeeded', {
-                reason: 'no_keyboard'
-              });
-            } else if (msg.type === 'auth_method_not_available') {
-              notifyConnectionState('authDialogNeeded', {
-                reason: 'no_keyboard'
-              });
-            } else if (msg.type === 'error') {
-              const message = msg.message || 'Unknown error';
-              if (isUnrecoverableError(message)) {
-                shouldNotReconnect = true;
-                notifyFailureOnce('Authentication failed: ' + message);
-                try { ws && ws.close(1000); } catch (_) {}
-                return;
-              }
-            } else if (msg.type === 'connected') {
-              notifyConnectionState('connected', { hostName: hostConfig.name });
-              notifyConnectionState('setupPostConnection', {});
-            } else if (msg.type === 'disconnected') {
-              notifyConnectionState('disconnected', { hostName: hostConfig.name });
-            } else if (msg.type === 'pong') {
-              lastPongTime = Date.now();
-              connectionHealthy = true;
-
-              if (lastPingSentTime && (Date.now() - lastPingSentTime < 15000)) {
-                notifyConnectionState('connectionHealthy', {});
-              }
-            } else if (msg.type === 'resized') {
-            }
-          } catch (error) {
-            terminal.write(event.data);
-          }
-        };
-        
-        ws.onclose = function(event) {
-          clearTimeout(connectionTimeout);
-          stopPingInterval();
-
-          if (isAppInBackground) {
-            return;
-          }
-
-          if (shouldNotReconnect) {
-            notifyFailureOnce('Connection closed');
-            return;
-          }
-
-          if (event.code === 1000 || event.code === 1001) {
-            notifyFailureOnce('Connection closed');
-            return;
-          }
-
-          scheduleReconnect();
-        };
-        
-        ws.onerror = function(error) {
-          clearTimeout(connectionTimeout);
-        };
-        
-      } catch (error) {
-        clearTimeout(connectionTimeout);
-        notifyFailureOnce('Failed to create WebSocket connection: ' + error.message);
-      }
-    }
-    
-    let pingInterval = null;
-    
-    function startPingInterval() {
-      stopPingInterval();
-      pingInterval = setInterval(() => {
-        if (ws && ws.readyState === WebSocket.OPEN) {
-          ws.send(JSON.stringify({ type: 'ping' }));
-        }
-      }, 15000);
-    }
-    
-    function stopPingInterval() {
-      if (pingInterval) {
-        clearInterval(pingInterval);
-        pingInterval = null;
-      }
-    }
-
-    window.notifyBackgrounded = function() {
-      isAppInBackground = true;
-      backgroundTime = Date.now();
-
-      reconnectAttempts = 0;
-
-      stopPingInterval();
-
-      if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) {
-        shouldNotReconnect = true;
-        try {
-          ws.close(1000, 'App backgrounded');
-        } catch(e) {
-          console.error('[BACKGROUND] Error closing WebSocket:', e);
-        }
-        ws = null;
-        window.ws = null;
-      }
-
-      clearAllTimeouts();
-
-      notifyConnectionState('backgrounded', { closed: true });
-    }
-
-    window.notifyForegrounded = function() {
-      const wasInBackground = isAppInBackground;
-      isAppInBackground = false;
-      shouldNotReconnect = false;
-
-      if (wasInBackground) {
-        const backgroundDuration = Date.now() - (backgroundTime || 0);
-
-        notifyConnectionState('foregrounded', {
-          duration: backgroundDuration,
-          reconnecting: true
-        });
-
-        safeSetTimeout(() => {
-          scheduleReconnect();
-        }, 100);
-      }
-    }
-
     function handleResize() {
       fitAddon.fit();
-      
-      if (ws && ws.readyState === WebSocket.OPEN) {
-        ws.send(JSON.stringify({
+      if (window.ReactNativeWebView) {
+        window.ReactNativeWebView.postMessage(JSON.stringify({
           type: 'resize',
           data: { cols: terminal.cols, rows: terminal.rows }
         }));
@@ -867,119 +580,43 @@ const TerminalComponent = forwardRef<TerminalHandle, TerminalProps>(
     }
 
     window.nativeFit = function() {
-      try {
-        fitAddon.fit();
-        if (ws && ws.readyState === WebSocket.OPEN) {
-          ws.send(JSON.stringify({ type: 'resize', data: { cols: terminal.cols, rows: terminal.rows } }));
-        }
-      } catch (e) {}
+      try { handleResize(); } catch(e) {}
     }
-    
+
     window.addEventListener('resize', handleResize);
-    
+
     window.addEventListener('orientationchange', function() {
       setTimeout(handleResize, 100);
     });
-    
+
     terminal.clear();
     terminal.reset();
-    terminal.write('\x1b[2J\x1b[H');
-    
-    connectWebSocket();
-    
-    window.addEventListener('beforeunload', function() {
-      clearAllTimeouts();
-      stopPingInterval();
-      if (reconnectTimeout) clearTimeout(reconnectTimeout);
-      if (connectionTimeout) clearTimeout(connectionTimeout);
-      if (ws) {
-        ws.close();
-        window.ws = null;
+    terminal.write('\\x1b[2J\\x1b[H');
+
+    setTimeout(function() {
+      fitAddon.fit();
+      if (window.ReactNativeWebView) {
+        window.ReactNativeWebView.postMessage(JSON.stringify({
+          type: 'terminalReady',
+          data: { cols: terminal.cols, rows: terminal.rows }
+        }));
       }
-    });
+    }, 150);
   </script>
 </body>
 </html>
     `;
-    }, [hostConfig, screenDimensions, config.fontSize]);
+    }, [
+      hostConfig,
+      screenDimensions,
+      config.fontSize,
+      onBackgroundColorChange,
+    ]);
 
     useEffect(() => {
-      const updateHtml = async () => {
-        const html = await generateHTML();
-        setHtmlContent(html);
-      };
-      updateHtml();
+      setHtmlContent(generateHTML());
       // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
-
-    const handleTotpSubmit = useCallback(
-      (code: string) => {
-        const responseType = isPasswordPrompt
-          ? "password_response"
-          : "totp_response";
-
-        webViewRef.current?.injectJavaScript(`
-        (function() {
-          if (window.ws && window.ws.readyState === WebSocket.OPEN) {
-            window.ws.send(JSON.stringify({
-              type: '${responseType}',
-              data: { code: ${JSON.stringify(code)} }
-            }));
-          }
-        })();
-        true;
-      `);
-
-        setTotpRequired(false);
-        setTotpPrompt("");
-        setIsPasswordPrompt(false);
-        setIsConnecting(true);
-        setShowConnectingOverlay(true);
-      },
-      [isPasswordPrompt],
-    );
-
-    const handleAuthDialogSubmit = useCallback(
-      (credentials: {
-        password?: string;
-        sshKey?: string;
-        keyPassword?: string;
-      }) => {
-        const updatedHostConfig = {
-          ...hostConfig,
-          password: credentials.password,
-          key: credentials.sshKey,
-          keyPassword: credentials.keyPassword,
-          authType: credentials.password ? "password" : "key",
-        };
-
-        const messageData = {
-          password: credentials.password,
-          sshKey: credentials.sshKey,
-          keyPassword: credentials.keyPassword,
-          hostConfig: updatedHostConfig,
-        };
-
-        webViewRef.current?.injectJavaScript(`
-        (function() {
-          if (window.ws && window.ws.readyState === WebSocket.OPEN && window.terminal) {
-            const data = ${JSON.stringify(messageData)};
-            data.cols = window.terminal.cols;
-            data.rows = window.terminal.rows;
-            
-            window.ws.send(JSON.stringify({
-              type: 'reconnect_with_credentials',
-              data: data
-            }));
-          }
-        })();
-        true;
-      `);
-        setShowAuthDialog(false);
-        setIsConnecting(true);
-      },
-      [hostConfig],
-    );
 
     const handlePostConnectionSetup = useCallback(async () => {
       const terminalConfig: Partial<TerminalConfig> = {
@@ -993,17 +630,9 @@ const TerminalComponent = forwardRef<TerminalHandle, TerminalProps>(
           terminalConfig.environmentVariables.forEach((envVar, index) => {
             setTimeout(
               () => {
-                const key = envVar.key.replace(/'/g, "\\'");
-                const value = envVar.value.replace(/'/g, "\\'");
-                webViewRef.current?.injectJavaScript(`
-                if (window.ws && window.ws.readyState === WebSocket.OPEN) {
-                  window.ws.send(JSON.stringify({
-                    type: 'input',
-                    data: 'export ${key}="${value}"\\n'
-                  }));
-                }
-                true;
-              `);
+                const key = envVar.key;
+                const value = envVar.value;
+                wsManagerRef.current?.sendInput(`export ${key}="${value}"\n`);
               },
               100 * (index + 1),
             );
@@ -1017,19 +646,10 @@ const TerminalComponent = forwardRef<TerminalHandle, TerminalProps>(
             try {
               const snippets = await getSnippets();
               const snippet = snippets.find(
-                (s) => s.id === terminalConfig.startupSnippetId,
+                (s: any) => s.id === terminalConfig.startupSnippetId,
               );
               if (snippet) {
-                const content = snippet.content.replace(/'/g, "\\'");
-                webViewRef.current?.injectJavaScript(`
-                  if (window.ws && window.ws.readyState === WebSocket.OPEN) {
-                    window.ws.send(JSON.stringify({
-                      type: 'input',
-                      data: '${content}\\n'
-                    }));
-                  }
-                  true;
-                `);
+                wsManagerRef.current?.sendInput(`${snippet.content}\n`);
               }
             } catch (err) {
               console.warn("Failed to execute startup snippet:", err);
@@ -1042,120 +662,176 @@ const TerminalComponent = forwardRef<TerminalHandle, TerminalProps>(
             100 * (terminalConfig.environmentVariables?.length || 0) +
             (terminalConfig.startupSnippetId ? 400 : 200);
           setTimeout(() => {
-            const moshCommand = terminalConfig.moshCommand!.replace(
-              /'/g,
-              "\\'",
-            );
-            webViewRef.current?.injectJavaScript(`
-              if (window.ws && window.ws.readyState === WebSocket.OPEN) {
-                window.ws.send(JSON.stringify({
-                  type: 'input',
-                  data: '${moshCommand}\\n'
-                }));
-              }
-              true;
-            `);
+            wsManagerRef.current?.sendInput(`${terminalConfig.moshCommand!}\n`);
           }, moshDelay);
         }
       }, 500);
     }, [config, hostConfig.terminalConfig]);
 
-    const handleWebViewMessage = useCallback(
-      (event: any) => {
-        try {
-          const message = JSON.parse(event.nativeEvent.data);
+    const handleTotpSubmit = useCallback(
+      (code: string) => {
+        wsManagerRef.current?.sendTotpResponse(code, isPasswordPrompt);
+        setTotpRequired(false);
+        setTotpPrompt("");
+        setIsPasswordPrompt(false);
+        setConnectionState("connecting");
+      },
+      [isPasswordPrompt],
+    );
 
-          switch (message.type) {
+    const handleAuthDialogSubmit = useCallback(
+      (credentials: {
+        password?: string;
+        sshKey?: string;
+        keyPassword?: string;
+      }) => {
+        wsManagerRef.current?.sendReconnectWithCredentials(
+          credentials,
+          terminalColsRef.current,
+          terminalRowsRef.current,
+        );
+        setShowAuthDialog(false);
+        setConnectionState("connecting");
+      },
+      [],
+    );
+
+    const handleWebViewMessage = useCallback((event: any) => {
+      try {
+        const message = JSON.parse(event.nativeEvent.data);
+
+        switch (message.type) {
+          case "terminalReady":
+            terminalColsRef.current = message.data.cols;
+            terminalRowsRef.current = message.data.rows;
+            wsManagerRef.current?.connect(message.data.cols, message.data.rows);
+            break;
+
+          case "resize":
+            terminalColsRef.current = message.data.cols;
+            terminalRowsRef.current = message.data.rows;
+            wsManagerRef.current?.sendResize(
+              message.data.cols,
+              message.data.rows,
+            );
+            break;
+
+          case "selectionStart":
+            setIsSelecting(true);
+            break;
+
+          case "selectionEnd":
+            setIsSelecting(false);
+            break;
+        }
+      } catch (error) {
+        console.error("[Terminal] Error parsing WebView message:", error);
+      }
+    }, []);
+
+    useEffect(() => {
+      wsManagerRef.current?.destroy();
+
+      wsManagerRef.current = new NativeWebSocketManager({
+        hostConfig: hostConfig as TerminalHostConfig,
+        onStateChange: (state, data) => {
+          switch (state) {
             case "connecting":
               setConnectionState(
-                message.data.retryCount > 0 ? "reconnecting" : "connecting",
+                (data?.retryCount as number) > 0
+                  ? "reconnecting"
+                  : "connecting",
               );
-              setRetryCount(message.data.retryCount);
+              setRetryCount((data?.retryCount as number) || 0);
               break;
-
-            case "connected":
+            case "connected": {
+              const fromBackground = data?.fromBackground as boolean;
               setConnectionState("connected");
               setRetryCount(0);
-              setHasReceivedData(false);
+              if (!fromBackground) {
+                setHasReceivedData(false);
+              }
+              webViewRef.current?.injectJavaScript(
+                `window.notifyConnected(${fromBackground}); true;`,
+              );
               logActivity("terminal", hostConfig.id, hostConfig.name).catch(
                 () => {},
               );
               break;
-
-            case "totpRequired":
-              setTotpPrompt(message.data.prompt);
-              setIsPasswordPrompt(message.data.isPassword);
-              setTotpRequired(true);
-              break;
-
-            case "authDialogNeeded":
-              setAuthDialogReason(message.data.reason);
-              setShowAuthDialog(true);
-              setConnectionState("disconnected");
-              break;
-
-            case "setupPostConnection":
-              handlePostConnectionSetup();
-              break;
-
+            }
             case "dataReceived":
               setHasReceivedData(true);
               break;
-
-            case "disconnected":
-              setConnectionState("disconnected");
-              showToast.warning(`Disconnected from ${message.data.hostName}`);
-              if (onClose) onClose();
-              break;
-
-            case "connectionFailed":
-              setConnectionState("failed");
-              handleConnectionFailure(
-                `${message.data.hostName}: ${message.data.message}`,
-              );
-              break;
-
-            case "backgrounded":
-              setConnectionState("disconnected");
-              break;
-
-            case "foregrounded":
-              setConnectionState("reconnecting");
-              break;
-
-            case "selectionStart":
-              setIsSelecting(true);
-              break;
-
-            case "selectionEnd":
-              setIsSelecting(false);
-              break;
-
-            case "connectionStatus":
-              break;
           }
-        } catch (error) {
-          console.error("[Terminal] Error parsing WebView message:", error);
+        },
+        onData: (data) => {
+          pendingDataRef.current.push(data);
+          if (!dataFlushTimerRef.current) {
+            dataFlushTimerRef.current = setTimeout(() => {
+              dataFlushTimerRef.current = null;
+              const batch = pendingDataRef.current.join("");
+              pendingDataRef.current = [];
+              webViewRef.current?.injectJavaScript(
+                `window.writeToTerminal(${JSON.stringify(batch)}); true;`,
+              );
+            }, 16);
+          }
+          if (isScreenReaderEnabledRef.current) {
+            writeToAccessibility(data);
+          }
+        },
+        onTotpRequired: (prompt, isPassword) => {
+          setTotpPrompt(prompt);
+          setIsPasswordPrompt(isPassword);
+          setTotpRequired(true);
+        },
+        onAuthDialogNeeded: (reason) => {
+          setAuthDialogReason(reason);
+          setShowAuthDialog(true);
+          setConnectionState("disconnected");
+        },
+        onHostKeyVerificationRequired: (scenario, data) => {
+          setHostKeyVerification({ scenario, data });
+        },
+        onPostConnectionSetup: () => handlePostConnectionSetup(),
+        onDisconnected: (hostName) => {
+          setConnectionState("disconnected");
+          showToast.warning(`Disconnected from ${hostName}`);
+          if (onClose) onClose();
+        },
+        onConnectionFailed: (message) => handleConnectionFailure(message),
+      });
+
+      setWebViewKey((prev) => prev + 1);
+      setConnectionState("connecting");
+      setHasReceivedData(false);
+      setRetryCount(0);
+
+      const html = generateHTML();
+      setHtmlContent(html);
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [hostConfig.id]);
+
+    useEffect(() => {
+      return () => {
+        wsManagerRef.current?.destroy();
+        wsManagerRef.current = null;
+        if (dataFlushTimerRef.current) {
+          clearTimeout(dataFlushTimerRef.current);
+          dataFlushTimerRef.current = null;
         }
-      },
-      [
-        handleConnectionFailure,
-        onClose,
-        hostConfig.id,
-        handlePostConnectionSetup,
-      ],
-    );
+        if (accessibilityTimerRef.current) {
+          clearTimeout(accessibilityTimerRef.current);
+          accessibilityTimerRef.current = null;
+        }
+      };
+    }, []);
 
     useImperativeHandle(
       ref,
       () => ({
         sendInput: (data: string) => {
-          try {
-            const escaped = JSON.stringify(data);
-            webViewRef.current?.injectJavaScript(
-              `window.nativeInput(${escaped}); true;`,
-            );
-          } catch (e) {}
+          wsManagerRef.current?.sendInput(data);
         },
         fit: () => {
           try {
@@ -1165,81 +841,27 @@ const TerminalComponent = forwardRef<TerminalHandle, TerminalProps>(
           } catch (e) {}
         },
         isDialogOpen: () => {
-          return totpRequired || showAuthDialog;
+          return totpRequired || showAuthDialog || hostKeyVerification !== null;
         },
         notifyBackgrounded: () => {
-          try {
-            webViewRef.current?.injectJavaScript(`
-              window.notifyBackgrounded && window.notifyBackgrounded();
-              true;
-            `);
-          } catch (e) {}
+          wsManagerRef.current?.notifyBackgrounded();
         },
         notifyForegrounded: () => {
-          try {
-            webViewRef.current?.injectJavaScript(`
-              window.notifyForegrounded && window.notifyForegrounded();
-              true;
-            `);
-          } catch (e) {}
+          wsManagerRef.current?.notifyForegrounded();
         },
         scrollToBottom: () => {
           try {
-            webViewRef.current?.injectJavaScript(`
-              window.resetScroll && window.resetScroll();
-              true;
-            `);
+            webViewRef.current?.injectJavaScript(
+              `window.resetScroll && window.resetScroll(); true;`,
+            );
           } catch (e) {}
         },
         isSelecting: () => {
           return isSelecting;
         },
       }),
-      [totpRequired, showAuthDialog, isSelecting],
+      [totpRequired, showAuthDialog, hostKeyVerification, isSelecting],
     );
-
-    useEffect(() => {
-      if (hostConfig.id !== currentHostId) {
-        setCurrentHostId(hostConfig.id);
-        setWebViewKey((prev) => prev + 1);
-        setConnectionState("connecting");
-        setHasReceivedData(false);
-        setRetryCount(0);
-
-        const updateHtml = async () => {
-          const html = await generateHTML();
-          setHtmlContent(html);
-        };
-        updateHtml();
-      }
-    }, [hostConfig.id, currentHostId]);
-
-    useEffect(() => {
-      return () => {
-        webViewRef.current?.injectJavaScript(`
-          (function() {
-            try {
-              clearAllTimeouts();
-              stopPingInterval();
-              if (window.ws) {
-                window.ws.close(1000, 'Component unmounted');
-                window.ws = null;
-              }
-            } catch(e) {
-              console.error('[CLEANUP] Error:', e);
-            }
-          })();
-          true;
-        `);
-
-        if (connectionTimeoutRef.current) {
-          clearTimeout(connectionTimeoutRef.current);
-          connectionTimeoutRef.current = null;
-        }
-      };
-    }, []);
-
-    const focusTerminal = useCallback(() => {}, []);
 
     return (
       <View
@@ -1268,7 +890,11 @@ const TerminalComponent = forwardRef<TerminalHandle, TerminalProps>(
         >
           <View
             style={{ flex: 1, backgroundColor: terminalBackgroundColor }}
-            pointerEvents={totpRequired || showAuthDialog ? "none" : "auto"}
+            pointerEvents={
+              totpRequired || showAuthDialog || hostKeyVerification !== null
+                ? "none"
+                : "auto"
+            }
           >
             <WebView
               key={`terminal-${hostConfig.id}-${webViewKey}`}
@@ -1389,7 +1015,7 @@ const TerminalComponent = forwardRef<TerminalHandle, TerminalProps>(
                         textAlign: "center",
                       }}
                     >
-                      Retry {retryCount}/3
+                      Retry {retryCount}/5
                     </Text>
                   </View>
                 )}
@@ -1397,6 +1023,22 @@ const TerminalComponent = forwardRef<TerminalHandle, TerminalProps>(
             </View>
           )}
         </View>
+
+        {isScreenReaderEnabled && (
+          <View
+            accessible={true}
+            accessibilityLabel={accessibilityText}
+            accessibilityLiveRegion="polite"
+            style={{
+              position: "absolute",
+              width: 1,
+              height: 1,
+              opacity: 0,
+              top: -1000,
+              left: -1000,
+            }}
+          />
+        )}
 
         <TOTPDialog
           visible={totpRequired}
@@ -1425,6 +1067,21 @@ const TerminalComponent = forwardRef<TerminalHandle, TerminalProps>(
             username: hostConfig.username,
           }}
           reason={authDialogReason}
+        />
+
+        <HostKeyVerificationDialog
+          visible={hostKeyVerification !== null}
+          scenario={hostKeyVerification?.scenario ?? "new"}
+          data={hostKeyVerification?.data ?? null}
+          onAccept={() => {
+            wsManagerRef.current?.sendHostKeyResponse("accept");
+            setHostKeyVerification(null);
+          }}
+          onReject={() => {
+            wsManagerRef.current?.sendHostKeyResponse("reject");
+            setHostKeyVerification(null);
+            if (onClose) onClose();
+          }}
         />
       </View>
     );

@@ -26,9 +26,11 @@ export function getResponsiveFontSize(
 export function getMaxKeyboardHeight(
   screenHeight: number,
   isLandscape: boolean,
+  isIPad: boolean = false,
 ): number {
   if (!isLandscape) return screenHeight;
-  return screenHeight * 0.4;
+  const cap = isIPad ? 0.6 : 0.4;
+  return screenHeight * cap;
 }
 
 export function getTabBarHeight(isLandscape: boolean): number {

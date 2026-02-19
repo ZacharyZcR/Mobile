@@ -48,11 +48,13 @@ import {
   BORDER_COLORS,
   BORDERS,
 } from "@/app/constants/designTokens";
+import { addKeyCommandListener } from "@/modules/hardware-keyboard";
 
 export default function Sessions() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const { height, isLandscape } = useOrientation();
+  const isIPad = Platform.OS === "ios" && Platform.isPad;
   const {
     sessions,
     activeSessionId,
@@ -87,6 +89,16 @@ export default function Sessions() {
     Dimensions.get("window"),
   );
   const [keyboardType, setKeyboardType] = useState<any>("default");
+  const [hiddenInputValue, setHiddenInputValue] = useState("");
+  const dictationBufferRef = useRef("");
+  const dictationSentRef = useRef("");
+  const dictationTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    if (dictationTimerRef.current) clearTimeout(dictationTimerRef.current);
+    dictationBufferRef.current = "";
+    dictationSentRef.current = "";
+    setHiddenInputValue("");
+  }, [activeSessionId]);
   const lastBlurTimeRef = useRef<number>(0);
   const [terminalBackgroundColors, setTerminalBackgroundColors] = useState<
     Record<string, string>
@@ -94,7 +106,7 @@ export default function Sessions() {
   const isSelectingRef = useRef(false);
   const keyboardWasHiddenBeforeSelectionRef = useRef(false);
 
-  const maxKeyboardHeight = getMaxKeyboardHeight(height, isLandscape);
+  const maxKeyboardHeight = getMaxKeyboardHeight(height, isLandscape, isIPad);
   const effectiveKeyboardHeight = isLandscape
     ? Math.min(lastKeyboardHeight, maxKeyboardHeight)
     : lastKeyboardHeight;
@@ -374,6 +386,41 @@ export default function Sessions() {
     isCustomKeyboardVisible,
     customKeyboardHeight,
   ]);
+
+  useEffect(() => {
+    if (Platform.OS !== "ios") return;
+    const sub = addKeyCommandListener((event) => {
+      const activeRef = activeSessionId
+        ? terminalRefs.current[activeSessionId]
+        : null;
+      if (!activeRef?.current) return;
+
+      if (event.shift && event.input === "\t") {
+        activeRef.current.sendInput("\x1b[Z");
+        return;
+      }
+
+      if (event.ctrl) {
+        const ch = event.input.toLowerCase();
+        const code = ch.charCodeAt(0) & 0x1f;
+        activeRef.current.sendInput(String.fromCharCode(code));
+        return;
+      }
+
+      const specialMap: Record<string, string> = {
+        ArrowUp: "\x1b[A",
+        ArrowDown: "\x1b[B",
+        ArrowLeft: "\x1b[D",
+        ArrowRight: "\x1b[C",
+        Escape: "\x1b",
+      };
+      if (specialMap[event.input]) {
+        activeRef.current.sendInput(specialMap[event.input]);
+        return;
+      }
+    });
+    return () => sub?.remove();
+  }, [activeSessionId]);
 
   useFocusEffect(
     React.useCallback(() => {
@@ -679,7 +726,7 @@ export default function Sessions() {
               bottom: keyboardIntentionallyHiddenRef.current
                 ? 0
                 : isKeyboardVisible && currentKeyboardHeight > 0
-                  ? currentKeyboardHeight + (isLandscape ? 4 : 0)
+                  ? currentKeyboardHeight + (isLandscape && !isIPad ? 4 : 0)
                   : 0,
               left: 0,
               right: 0,
@@ -794,7 +841,7 @@ export default function Sessions() {
               backgroundColor: "transparent",
               zIndex: -1,
             }}
-            pointerEvents="none"
+            pointerEvents="box-none"
             autoFocus={false}
             showSoftInputOnFocus={true}
             keyboardType={keyboardType}
@@ -805,11 +852,88 @@ export default function Sessions() {
             autoCapitalize="none"
             spellCheck={false}
             textContentType="none"
+            importantForAutofill="no"
+            autoComplete="off"
             caretHidden
             contextMenuHidden
             underlineColorAndroid="transparent"
-            multiline
-            onChangeText={() => {}}
+            value={hiddenInputValue}
+            onChangeText={(text) => {
+              if (text.length <= dictationSentRef.current.length) {
+                const hasPendingBuffer =
+                  Platform.OS === "android" &&
+                  !text &&
+                  dictationBufferRef.current &&
+                  dictationTimerRef.current !== null;
+
+                if (hasPendingBuffer) {
+                  clearTimeout(dictationTimerRef.current!);
+                  dictationTimerRef.current = null;
+                  const pendingText = dictationBufferRef.current;
+                  const alreadySent = dictationSentRef.current;
+                  dictationBufferRef.current = "";
+                  dictationSentRef.current = "";
+                  setHiddenInputValue("");
+                  const activeRef = activeSessionId
+                    ? terminalRefs.current[activeSessionId]
+                    : null;
+                  if (activeRef?.current) {
+                    if (pendingText.startsWith(alreadySent)) {
+                      const newText = pendingText.slice(alreadySent.length);
+                      if (newText) activeRef.current.sendInput(newText);
+                    } else {
+                      if (pendingText) activeRef.current.sendInput(pendingText);
+                    }
+                  }
+                  return;
+                }
+
+                if (text) dictationSentRef.current = text;
+                dictationBufferRef.current = "";
+                if (!text) setHiddenInputValue("");
+                return;
+              }
+              if (!text) {
+                dictationBufferRef.current = "";
+                dictationSentRef.current = "";
+                return;
+              }
+              const activeRef = activeSessionId
+                ? terminalRefs.current[activeSessionId]
+                : null;
+              if (!activeRef?.current) {
+                setHiddenInputValue("");
+                dictationBufferRef.current = "";
+                return;
+              }
+              dictationBufferRef.current = text;
+              setHiddenInputValue(text);
+              if (dictationTimerRef.current)
+                clearTimeout(dictationTimerRef.current);
+              dictationTimerRef.current = setTimeout(() => {
+                const finalText = dictationBufferRef.current;
+                const alreadySent = dictationSentRef.current;
+                dictationBufferRef.current = "";
+                dictationTimerRef.current = null;
+                setHiddenInputValue("");
+                if (finalText.startsWith(alreadySent)) {
+                  const newText = finalText.slice(alreadySent.length);
+                  if (newText) {
+                    dictationSentRef.current = finalText;
+                    activeRef.current?.sendInput(newText);
+                  }
+                } else {
+                  dictationSentRef.current = finalText;
+                  if (finalText) activeRef.current?.sendInput(finalText);
+                }
+              }, 300);
+            }}
+            onSubmitEditing={() => {
+              const activeRef = activeSessionId
+                ? terminalRefs.current[activeSessionId]
+                : null;
+              activeRef?.current?.sendInput("\r");
+            }}
             onKeyPress={({ nativeEvent }) => {
               const key = nativeEvent.key;
               const activeRef = activeSessionId
@@ -818,51 +942,97 @@ export default function Sessions() {
 
               if (!activeRef?.current) return;
 
-              let finalKey = key;
+              let finalKey: string | null = null;
 
-              if (activeModifiers.ctrl) {
-                switch (key.toLowerCase()) {
-                  case "c":
-                    finalKey = "\x03";
-                    break;
-                  case "d":
-                    finalKey = "\x04";
-                    break;
-                  case "z":
-                    finalKey = "\x1a";
-                    break;
-                  case "l":
-                    finalKey = "\x0c";
-                    break;
-                  case "a":
-                    finalKey = "\x01";
-                    break;
-                  case "e":
-                    finalKey = "\x05";
-                    break;
-                  case "k":
-                    finalKey = "\x0b";
-                    break;
-                  case "u":
-                    finalKey = "\x15";
-                    break;
-                  case "w":
-                    finalKey = "\x17";
-                    break;
-                  default:
-                    if (key.length === 1) {
+              switch (key) {
+                case "Enter":
+                  finalKey = "\r";
+                  break;
+                case "Backspace":
+                  finalKey = "\x7f";
+                  break;
+                case "Tab":
+                  finalKey = "\t";
+                  break;
+                case "Escape":
+                  finalKey = "\x1b";
+                  break;
+                case "Delete":
+                  finalKey = "\x1b[3~";
+                  break;
+                case "Home":
+                  finalKey = "\x1b[H";
+                  break;
+                case "End":
+                  finalKey = "\x1b[F";
+                  break;
+                case "PageUp":
+                  finalKey = "\x1b[5~";
+                  break;
+                case "PageDown":
+                  finalKey = "\x1b[6~";
+                  break;
+                case "ArrowUp":
+                  finalKey = "\x1b[A";
+                  break;
+                case "ArrowDown":
+                  finalKey = "\x1b[B";
+                  break;
+                case "ArrowRight":
+                  finalKey = "\x1b[C";
+                  break;
+                case "ArrowLeft":
+                  finalKey = "\x1b[D";
+                  break;
+                case "F1":
+                  finalKey = "\x1bOP";
+                  break;
+                case "F2":
+                  finalKey = "\x1bOQ";
+                  break;
+                case "F3":
+                  finalKey = "\x1bOR";
+                  break;
+                case "F4":
+                  finalKey = "\x1bOS";
+                  break;
+                case "F5":
+                  finalKey = "\x1b[15~";
+                  break;
+                case "F6":
+                  finalKey = "\x1b[17~";
+                  break;
+                case "F7":
+                  finalKey = "\x1b[18~";
+                  break;
+                case "F8":
+                  finalKey = "\x1b[19~";
+                  break;
+                case "F9":
+                  finalKey = "\x1b[20~";
+                  break;
+                case "F10":
+                  finalKey = "\x1b[21~";
+                  break;
+                case "F11":
+                  finalKey = "\x1b[23~";
+                  break;
+                case "F12":
+                  finalKey = "\x1b[24~";
+                  break;
+                default:
+                  if (key.length === 1) {
+                    if (activeModifiers.ctrl) {
                       finalKey = String.fromCharCode(key.charCodeAt(0) & 0x1f);
+                    } else if (activeModifiers.alt) {
+                      finalKey = `\x1b${key}`;
+                    } else {
+                      finalKey = key;
                     }
-                }
-              } else if (activeModifiers.alt) {
-                finalKey = `\x1b${key}`;
+                  }
               }
 
-              if (key === "Enter") {
-                activeRef.current.sendInput("\r");
-              } else if (key === "Backspace") {
-                activeRef.current.sendInput("\b");
-              } else if (key.length === 1) {
+              if (finalKey !== null) {
                 activeRef.current.sendInput(finalKey);
               }
             }}

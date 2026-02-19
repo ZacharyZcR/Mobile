@@ -173,6 +173,10 @@ const TOTPDialogComponent: React.FC<TOTPDialogProps> = ({
                 secureTextEntry={isPasswordPrompt}
                 maxLength={isPasswordPrompt ? undefined : 6}
                 autoFocus={false}
+                autoCorrect={false}
+                autoCapitalize="none"
+                importantForAutofill="no"
+                autoComplete="off"
                 onSubmitEditing={handleSubmit}
               />
               <TouchableOpacity
