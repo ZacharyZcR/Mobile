@@ -28,6 +28,9 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Verify remote desktop resolution
+        run: node scripts/verify-remote-resolution.cjs
+
       - name: Check formatting
         run: npm run format:check
 
@@ -36,9 +39,6 @@ jobs:
 
       - name: Type-check
         run: npx tsc --noEmit --pretty false
-
-      - name: Verify remote desktop resolution
-        run: node scripts/verify-remote-resolution.cjs
 
       - name: Validate Expo config
         run: npx expo config --type public --json > /tmp/expo-config.json
